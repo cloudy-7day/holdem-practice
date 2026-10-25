@@ -1,6 +1,6 @@
 /* Static hosting adapter: preserve the offline server contract without a backend. */
 (()=>{
- const base="/holdem-practice/",config={"modes":{"offline":true,"lan":false,"pokerthnet":false},"loginDefaults":{"mode":"offline"},"serverName":"PokerTH · 中文教学桌","serverTagline":"先打一手，再看懂每个决定。由你决定何时继续。","tableDefaults":{"players":9,"blind":10,"stack":2000,"timeout":120},"defaults":{"voice":"0","sound":"0","assist":"1"},"musicEnabled":false,"featureOff":["voice","forum","chat_translate","err_report"]},revision="02ba37b13c06a4bd6786a9e3a463721882aa0eb8";
+ const base="/holdem-practice/",config={"modes":{"offline":true,"lan":false,"pokerthnet":false},"loginDefaults":{"mode":"offline"},"serverName":"PokerTH · 中文教学桌","serverTagline":"先打一手，再看懂每个决定。由你决定何时继续。","tableDefaults":{"players":9,"blind":10,"stack":2000,"timeout":120},"defaults":{"voice":"0","sound":"0","assist":"1"},"musicEnabled":false,"featureOff":["voice","forum","chat_translate","err_report"]},revision="b8d7158e6be7123b882620ca2e2650ab945ddd62";
  window.POKER_TEACHING_LOCAL=true;
  const nativeFetch=window.fetch.bind(window),nativeBeacon=navigator.sendBeacon?.bind(navigator);
  const json=value=>new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}});
