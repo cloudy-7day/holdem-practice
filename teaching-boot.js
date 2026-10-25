@@ -13,4 +13,4 @@ try {
 } catch (_) {}
 
 const mobileStyle=document.createElement('link');mobileStyle.rel='stylesheet';mobileStyle.href='/holdem-practice/modules/teaching/mobile.css';document.head.append(mobileStyle);
-import('/holdem-practice/modules/teaching/mobile.mjs');
+

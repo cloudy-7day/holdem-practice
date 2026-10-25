@@ -1118,6 +1118,7 @@ function _processAvatarFile(file) {
     'Manipulating the RNG ...', 'Taking a break at the Bar ...',
     'Practicing Poker-Faces ...', 'Going All-In ...', 'Folding AAAA ...',
     'Raising Big Blind ...', 'Stacking Chips ...'];
+  if (window.POKER_TEACHING_LOCAL) MSGS = ['正在准备牌桌…', '正在加载游戏，请稍候…', '每一手结束后都可以查看中文复盘。'];
   var msgEl = document.getElementById('bs-msg');
   if (msgEl) msgEl.textContent = MSGS[Math.floor(Math.random() * MSGS.length)];
   var msgTimer = setInterval(function () {
@@ -1128,6 +1129,7 @@ function _processAvatarFile(file) {
      repli si i18n échoue. Dès que window.t existe, on repasse sur les 36
      langues via relabel(). */
   var I = {
+    zh: { load:'正在加载游戏…', ready:'准备好了', retry:'重新加载', err:'游戏还没加载完成。请重试；微信内仍打不开时，可点右上角选择在 Safari 中打开。', miss:'尚未加载的文件：{n}' },
     en: { load:'Loading…', ready:'Ready.', retry:'Retry',
           err:'Unstable connection — some files could not be loaded.',
           miss:'Missing files: {n}' },
@@ -1137,6 +1139,7 @@ function _processAvatarFile(file) {
   function pick() {
     try {
       var s = (localStorage.getItem('pth_lang') || '').toLowerCase();
+      if (window.POKER_TEACHING_LOCAL || s.indexOf('zh') === 0) return 'zh';
       if (s.indexOf('fr') === 0) return 'fr';
       if (s) return 'en';
       if ((navigator.language || '').toLowerCase().indexOf('fr') === 0) return 'fr';
@@ -1145,6 +1148,7 @@ function _processAvatarFile(file) {
   }
   var L = I[pick()] || I.en;
   function relabel() {
+    if (window.POKER_TEACHING_LOCAL) return;
     if (typeof window.t !== 'function') return;
     function g(k, fb) { try { var v = window.t(k); return (v && v !== k) ? v : fb; } catch (e) { return fb; } }
     L = { load:g('bootLoading', L.load), ready:g('bootReady', L.ready),
@@ -1154,71 +1158,7 @@ function _processAvatarFile(file) {
     if (card.classList.contains('err') && errMsg) errMsg.textContent = L.err;
   }
 
-  var CRIT = ['/holdem-practice/pokerth.css', '/holdem-practice/chat-emotes.js', '/holdem-practice/pokerth.js',
-    '/holdem-practice/modules/errreport.mjs',
-    '/holdem-practice/modules/i18n.mjs', '/holdem-practice/modules/theme.mjs', '/holdem-practice/modules/ui/chatlog-tint.mjs', '/holdem-practice/modules/sounds.mjs',
-    '/holdem-practice/modules/handlog.mjs',
-    '/holdem-practice/modules/pdb-autosave.mjs',
-    '/holdem-practice/modules/backup-autosave.mjs',
-    '/holdem-practice/modules/journal.mjs',
-    '/holdem-practice/modules/game/state.mjs',
-    '/holdem-practice/modules/ui/fmt.mjs',
-    '/holdem-practice/modules/ui/media.mjs',
-    '/holdem-practice/modules/ui/announcer.mjs',
-    '/holdem-practice/modules/game/turn-timer.mjs',
-    '/holdem-practice/modules/game/stats.mjs',
-    '/holdem-practice/modules/net/petitions.mjs',
-    '/holdem-practice/modules/ui/debuglog.mjs',
-    '/holdem-practice/modules/ui/livescroll.mjs',
-    '/holdem-practice/modules/ui/chat.mjs',
-    '/holdem-practice/modules/ui/botsuggest.mjs',
-    '/holdem-practice/modules/chat/abbrev.mjs',
-    '/holdem-practice/modules/ui/player-popup.mjs',
-    '/holdem-practice/modules/ui/avatar-studio.mjs',
-    '/holdem-practice/modules/ui/avatar-vector.mjs',
-    '/holdem-practice/modules/ui/lobby.mjs',
-    '/holdem-practice/modules/game/showdown.mjs',
-    '/holdem-practice/modules/net/session.mjs',
-    '/holdem-practice/modules/ui/game-info.mjs',
-    '/holdem-practice/modules/ui/odds-panel.mjs',
-    '/holdem-practice/modules/ui/assist-pane.mjs',
-    '/holdem-practice/modules/ui/back-guard.mjs',
-    '/holdem-practice/modules/ui/z-order.mjs',
-    '/holdem-practice/modules/ui/seat-menu.mjs',
-    '/holdem-practice/modules/ui/invite.mjs',
-    '/holdem-practice/modules/ui/lan-directory.mjs',
-    '/holdem-practice/modules/ui/table-cards.mjs',
-    '/holdem-practice/modules/ui/action-bar.mjs',
-    '/holdem-practice/modules/ui/bet-keypad.mjs',
-    '/holdem-practice/modules/net/msg-avatars.mjs',
-    '/holdem-practice/modules/net/msg-social.mjs',
-    '/holdem-practice/modules/net/msg-lobby.mjs',
-    '/holdem-practice/modules/net/invite-link.mjs',
-    '/holdem-practice/modules/net/msg-game-join.mjs',
-    '/holdem-practice/modules/game/msg-hand.mjs',
-    '/holdem-practice/modules/game/seat-render.mjs',
-    '/holdem-practice/modules/game/cards.mjs',
-    '/holdem-practice/modules/net/proto.mjs',
-    '/holdem-practice/modules/net/crypto.mjs',
-    '/holdem-practice/modules/net/messages.mjs',
-    '/holdem-practice/modules/ui/shortcuts.mjs',
-    '/holdem-practice/modules/ui/reactions.mjs',
-    '/holdem-practice/modules/ui/anim.mjs',
-    '/holdem-practice/modules/game/seats.mjs',
-    '/holdem-practice/modules/game/layout.mjs',
-    '/holdem-practice/modules/game/puck-dodge.mjs',
-    '/holdem-practice/modules/game/seat-top-clamp.mjs',
-    '/holdem-practice/modules/ui/deck.mjs',
-    '/holdem-practice/modules/net/avatar-cache.mjs',
-    '/holdem-practice/modules/ui/misc.mjs',
-    '/holdem-practice/modules/ui/adv-search.mjs',
-    '/holdem-practice/modules/music.mjs', '/holdem-practice/modules/lang/en.mjs', '/holdem-practice/fonts/fonts.css'];
-  try {
-    var lg = (localStorage.getItem('pth_lang') || '').toLowerCase().split('-')[0];
-    var m = { fr:'fr', de:'de', es:'es', it:'it', nl:'nl', pl:'pl', ru:'ru', pt:'pt-br' };
-    if (m[lg]) CRIT.push('/holdem-practice/modules/lang/' + m[lg] + '.mjs');
-  } catch (e) {}
-
+  var CRIT = ["/holdem-practice/pokerth.css","/holdem-practice/bundles/app-DAP5JWKV.js"];
   var done = 0, missCount = 0, total = CRIT.length, gone = false;
   if (retryBtn) retryBtn.textContent = L.retry;
   if (statusEl) statusEl.textContent = L.load + ' 0 / ' + total;
@@ -1265,8 +1205,19 @@ function _processAvatarFile(file) {
     card.classList.add('err');
     if (errMsg) errMsg.textContent = L.err;
     if (statusEl) statusEl.textContent = missCount ? L.miss.replace('{n}', missCount) : '';
+    if (window.POKER_TEACHING_LOCAL && !document.getElementById('bs-load-detail')) {
+      var detail = document.createElement('details'); detail.id = 'bs-load-detail';
+      var summary = document.createElement('summary'); summary.textContent = '查看加载详情';
+      var info = document.createElement('pre'); info.style.cssText = 'white-space:pre-wrap;word-break:break-all;font:11px/1.5 system-ui;max-height:120px;overflow:auto;text-align:left';
+      var issues = (window.__pthErrQ || []).slice(-4).map(function (e) { return e.msg + (e.src ? ' · ' + e.src.split('/').pop() : ''); });
+      info.textContent = navigator.userAgent + '\n' + (issues.join('\n') || '游戏仍未准备完成；请重试或换浏览器打开。');
+      detail.appendChild(summary); detail.appendChild(info); document.getElementById('bs-error').appendChild(detail);
+    }
   }
-  if (retryBtn) retryBtn.onclick = function () { location.reload(); };
+  if (retryBtn) retryBtn.onclick = function () {
+    // A fresh document/module graph also clears a failed module cached by WebKit.
+    var next = new URL(location.href); next.searchParams.set('retry', String(Date.now())); location.replace(next.href);
+  };
 
   /* pokerth.js expose l'app comme `const App` global (pas window.App) ;
      un const global n'apparaît pas sur window. On le résout donc via le
@@ -1289,8 +1240,9 @@ function _processAvatarFile(file) {
     ticks++;
     relabel();
     if (appReady() && langReady()) { clearInterval(poll); reveal(); return; }
-    if (ticks === 240) fail();     // ~12 s : montre l'erreur, garde la surveillance
-    if (ticks > 1200) clearInterval(poll);   // abandon ~60 s
+    if (ticks === 240 && statusEl) statusEl.textContent = '正在加载，网络较慢，请稍候…';
+    if (ticks === 1800) fail();     // Slow downloads stay in the loading state; offer retry after 90 seconds.
+    if (ticks > 6000) clearInterval(poll);   // Keep observing late completion for up to five minutes.
   }, 50);
   /* Filet : au 'load' tous les scripts defer ont fini de s'exécuter. */
   window.addEventListener('load', function () {
@@ -3047,80 +2999,80 @@ function _processAvatarFile(file) {
      are available when pokerth.js starts executing. Modules are deferred
      by default, and the main script below uses `defer` too — defer
      scripts execute in document order, so this ordering is reliable. -->
-<script type="module" src="modules/errreport.mjs"></script>
-<script type="module" src="modules/i18n.mjs"></script>
-<script type="module" src="modules/ui/accessibility.mjs"></script>
-<script type="module" src="modules/theme.mjs"></script>
-<script type="module" src="modules/sounds.mjs"></script>
-<script type="module" src="modules/music.mjs"></script>
+
+
+
+
+
+
 <script defer src="vendor/sql-wasm.js"></script>
-<script type="module" src="modules/handlog.mjs"></script>
-<script type="module" src="modules/pdb-autosave.mjs"></script>
-<script type="module" src="modules/arena-witness.mjs"></script>
-<script type="module" src="modules/create-presets.mjs"></script>
-<script type="module" src="modules/backup-autosave.mjs"></script>
-<script type="module" src="modules/journal.mjs"></script>
-<script type="module" src="modules/notes/index.mjs"></script>
-<script type="module" src="modules/game/state.mjs"></script>
-<script type="module" src="modules/ui/fmt.mjs"></script>
-<script type="module" src="modules/ui/media.mjs"></script>
-<script type="module" src="modules/ui/announcer.mjs"></script>
-<script type="module" src="modules/game/turn-timer.mjs"></script>
-<script type="module" src="modules/game/stats.mjs"></script>
-<script type="module" src="modules/net/petitions.mjs"></script>
-<script type="module" src="modules/ui/debuglog.mjs"></script>
-<script type="module" src="modules/ui/livescroll.mjs"></script>
-<script type="module" src="modules/ui/chat.mjs"></script>
-<script type="module" src="modules/ui/botsuggest.mjs"></script>
-<script type="module" src="modules/chat/abbrev.mjs"></script>
-<script type="module" src="modules/ui/player-popup.mjs"></script>
-<script type="module" src="modules/ui/avatar-vector.mjs"></script>
-<script type="module" src="modules/ui/avatar-studio.mjs"></script>
-<script type="module" src="modules/ui/lobby.mjs"></script>
-<script type="module" src="modules/ui/forumnews.mjs"></script>
-<script type="module" src="modules/ui/lobby-clock.mjs"></script>
-<script type="module" src="modules/ui/header-title-fit.mjs"></script>
-<script type="module" src="modules/ui/login-flourish.mjs"></script>
-<script type="module" src="modules/mascot/index.mjs"></script>
-<script type="module" src="modules/guide/index.mjs"></script>
-<script type="module" src="modules/ui/pm.mjs"></script>
-<script type="module" src="modules/net/watchdog.mjs"></script>
-<script type="module" src="modules/game/showdown.mjs"></script>
-<script type="module" src="modules/net/session.mjs"></script>
-<script type="module" src="modules/ui/game-info.mjs"></script>
-<script type="module" src="modules/ui/odds-panel.mjs"></script>
-<script type="module" src="modules/ui/assist-pane.mjs"></script>
-<script type="module" src="modules/ui/table-cards.mjs"></script>
-<script type="module" src="modules/ui/action-bar.mjs"></script>
-<script type="module" src="modules/net/msg-avatars.mjs"></script>
-<script type="module" src="modules/net/msg-social.mjs"></script>
-<script type="module" src="modules/net/msg-lobby.mjs"></script>
-<script type="module" src="modules/net/msg-game-join.mjs"></script>
-<script type="module" src="modules/game/msg-hand.mjs"></script>
-<script type="module" src="modules/game/seat-render.mjs"></script>
-<script type="module" src="modules/game/cards.mjs"></script>
-<script type="module" src="modules/net/proto.mjs"></script>
-<script type="module" src="modules/net/crypto.mjs"></script>
-<script type="module" src="modules/net/messages.mjs"></script>
-<script type="module" src="modules/ui/shortcuts.mjs"></script>
-<script type="module" src="modules/ui/poll.mjs"></script>
-<script type="module" src="modules/ui/live-stats.mjs"></script>
-<script type="module" src="modules/ui/reactions.mjs"></script>
-<script type="module" src="modules/ui/anim.mjs"></script>
-<script type="module" src="modules/game/seats.mjs"></script>
-<script type="module" src="modules/game/layout.mjs"></script>
-<script type="module" src="modules/ui/deck.mjs"></script>
-<script type="module" src="modules/net/avatar-cache.mjs"></script>
-<script type="module" src="modules/ui/misc.mjs"></script>
-<script type="module" src="modules/ui/adv-search.mjs"></script>
-<script type="module" src="modules/ui/keynav.mjs"></script>
-<script type="module" src="modules/ui/back-guard.mjs"></script>
-<script type="module" src="modules/ui/gamepad.mjs"></script>
-<script type="module" src="modules/ui/remote.mjs"></script>
-<script type="module" src="modules/ui/z-order.mjs"></script>
-<script type="module" src="modules/ui/invite.mjs"></script>
-<script type="module" src="modules/ui/lan-directory.mjs"></script>
-<script type="module" src="modules/ui/mini-board.mjs"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!-- Quit-game confirmation dialog: 2 buttons (Quit / Cancel).
      Shown when the user clicks the ✕ button in the header from inside
      a game. Driven by App.confirmLeaveGame() (open) and
@@ -3263,7 +3215,7 @@ function _processAvatarFile(file) {
   </div>
 </div>
 <script src="chat-emotes.js" defer></script>
-<script type="module" src="pokerth.js"></script> <!-- [9g-A2] module : ordre inchangé (défèrement identique, dernier du document) -->
+ <!-- [9g-A2] module : ordre inchangé (défèrement identique, dernier du document) -->
 <script>
 if ('serviceWorker' in navigator && !window.LIVE_MODE && !window.POKER_TEACHING_LOCAL) {
   // Live/embed mode registers no service worker: the page runs inside
@@ -5234,9 +5186,10 @@ if ('serviceWorker' in navigator && !window.LIVE_MODE && !window.POKER_TEACHING_
 
 
 
-<script type="module" src="/holdem-practice/modules/teaching/ui.mjs"></script>
-<script type="module" src="/holdem-practice/modules/teaching/presentation.mjs"></script>
-<script type="module" src="/holdem-practice/modules/teaching/experience-settings.mjs"></script>
+
+
+
 <span id="tc-public-source"><a href="/holdem-practice/source.zip" download>下载完整源代码</a> · <a href="/holdem-practice/SOURCE.md">来源与许可</a></span><style>#tc-public-source{position:fixed;bottom:5px;left:10px;z-index:20;font:12px system-ui;color:#cbbd82}#tc-public-source a{color:inherit}body.tc-active #tc-public-source{display:none}</style>
+<script type="module" src="/holdem-practice/bundles/app-DAP5JWKV.js"></script>
 </body>
 </html>
