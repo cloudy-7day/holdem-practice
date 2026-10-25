@@ -1,0 +1,938 @@
+// @ts-check
+// ─────────────────────────────────────────────────────────────────────────
+// public/modules/game/layout.mjs
+//
+// Géométrie officielle du client QML PokerTH 2.1.3 (port 1:1 de GamePage.qml,
+// build 2026-06-28 + delta 2.1.3) :
+//   • _qmlLandscapeLayout — ellipse paysage : boxScale par bisection de
+//     faisabilité (14 itérations, plancher 0.55), buildLandscapeSlots avec
+//     TOUS les correctifs (lowerSquash, sideGravity 0.25, topCosSquash 1.4,
+//     lowerGravity, pairSpread, maxBottomY = morsure 55 % de la self-box),
+//     angles TL/TR 230°/310°, TLo/TRo 200°/340°, radiusX ∈ [0.22, 0.36]·W.
+//   • _qmlPortraitScale — bisection portrait (slots fixes, nudges ±14/−4).
+//   • _officialSeatPix — mapping [self, opp…] → px (portrait slots fixes /
+//     paysage ellipse), out._boxScale + out._zoomHeadroom.
+//   • _applyQmlBgCenter — fond « center » calé sur communityCenterY
+//     (cache de tailles naturelles via window._bgNatCache, comme avant) ;
+//     _bgDynKeep — hystérésis pure (≤ 3 px à géométrie égale) anti-saut 1 px.
+//
+// Fonctions PURES (les trois premières) — testées en node contre les valeurs
+// de la Bible/DELTA (scripts/test-layout.mjs). Historique : extraites de
+// l'IIFE App de public/pokerth.js (étape 9a du plan docs/ESM_PLAN.md), au
+// verbatim modulo dédentation ; _qmlLandscapeLayout et _qmlPortraitScale
+// étaient déjà attachées à window par le code d'origine.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── SeatStyle 2.1.8 (upstream 414a89c3 + 06db9866) ────────────────────────
+// Le socle de mise « inset » entre dans les BASES de la géométrie
+// (betStripExtra 20) et betSideOutset dose la place latérale mises/pucks sur
+// mobile (40 en inset : puck seul · 68 en classic : chip + montant).
+// isMobile (Responsive.qml : OS Android/iOS) devient côté web « appareil
+// tactile » (pointer: coarse), même critère que l'ancien défaut du style de
+// mise. Les fonctions pures reçoivent ces valeurs via `opts` (tests Node) ;
+// les défauts lisent l'environnement à l'appel.
+function _seatStyleInset() {
+  try {
+    if (typeof window !== 'undefined' && typeof window._betStyleVariant === 'function')
+      return window._betStyleVariant() === 'inset';
+  } catch (e) {}
+  return true;    // défaut QML 2.1.8 (f9a8906) : inset partout
+}
+function _seatGeomOpts(opts) {
+  var o = opts || {};
+  var inset = (o.inset !== undefined) ? !!o.inset : _seatStyleInset();
+  var interfaceScale = (typeof o.interfaceScale === 'number' && isFinite(o.interfaceScale))
+    ? Math.max(1, Math.min(2, o.interfaceScale)) : 1;
+  var mob;
+  if (o.mobile !== undefined) mob = !!o.mobile;
+  else {
+    mob = false;
+    try {
+      if (typeof window !== 'undefined' && window.matchMedia)
+        mob = window.matchMedia('(pointer: coarse)').matches;
+    } catch (e) {}
+  }
+  return {
+    mobile: mob,
+    strip:  (o.strip  !== undefined) ? o.strip  : (inset ? 20 : 0),   // SeatStyle.betStripExtra
+    outset: (o.outset !== undefined) ? o.outset : (inset ? 40 : 68),  // SeatStyle.betSideOutset
+    // Optional desktop semantic scale. At 1, QML geometry is unchanged; the
+    // dense ring expands continuously as critical information grows.
+    interfaceScale: interfaceScale,
+    sideGap: 48 * (2 - interfaceScale),
+    radiusMax: 0.36 + 0.06 * (interfaceScale - 1),
+    // Marge basse RÉELLE de la self côté web (ajustement narmod 17-19/07 :
+    // 24 px pour décoller la self du panneau d'action flottant ; QML = 4).
+    // Les rangées mobiles doivent modéliser la self LÀ OÙ le rendu la met,
+    // sinon la rangée basse mord la self de ~20 px. Spectateur non concerné.
+    selfBottom: (o.selfBottom !== undefined) ? o.selfBottom : 24
+  };
+}
+
+// ── QML_LANDSCAPE_LAYOUT_BEGIN ──
+// Port 1:1 de GamePage.qml (build officiel 2026-06-28) : boxScale par
+// BISECTION de faisabilité (14 itérations, plancher 0.55, plafond
+// fillCap(compact?1.7:1.4)) + buildLandscapeSlots() avec les rayons
+// s-dépendants et TOUS les correctifs (lowerSquash, sideGravity,
+// topCosSquash, lowerGravity, pairSpread, vMaxLower/maxBottomY,
+// selfClearX). pairSpread est DÉLIBÉRÉMENT absent de feasibleAt(),
+// comme dans le QML (sinon la bisection remplirait l'écart créé).
+// Fonction PURE (aucun DOM) → testée en Node (window._qmlLandscapeLayout).
+function _qmlLandscapeLayout(oppCnt, zW, zH, compact, zoomMul, spectating, opts) {
+  var _st = _seatGeomOpts(opts);
+  // Bases QML 2.1.8 (GamePage tableZone) : le socle inset (betStripExtra 20)
+  // entre dans la HAUTEUR des bases ; la largeur le re-déduit — la box ne
+  // grandit qu'en hauteur (rowH = oppBaseH − 44 − strip = 40 → 114, tous
+  // styles). Spectateur : le siège du bas a les mêmes bases que les autres.
+  var _strip = _st.strip;
+  var oppBaseH = 84 + _strip;
+  var _rowHl = oppBaseH - 44 - _strip;
+  var oppBaseW = 2 * 4 + _rowHl + 4 + 2 * Math.round(_rowHl * 120 / 168) + 4;
+  var selfBaseH = spectating ? oppBaseH : (compact ? 94 : 96) + _strip;
+  // selfBaseWidth QML : 2*4 + min(cH,60) + 4 + 2*round(cH*120/168) + 4, cH = selfH-strip-12-32 (paysage)
+  var _scH = selfBaseH - _strip - 44, selfBaseW = spectating ? oppBaseW : 8 + Math.min(_scH, 60) + 4 + 2 * Math.round(_scH * 120 / 168) + 4;
+  // STRICT QML : la géométrie (radiusX/Y, bande verticale, selfClearX)
+  // utilise les BASES du client officiel, jamais les dimensions DOM
+  // mesurées — sinon la FORME de l'ellipse diverge (constaté chez narmod :
+  // dims 94×77 → rayons différents à bisection égale). Le CSS des packs
+  // pokerth tient les plaques au gabarit ~114×84/96 ; un léger écart de
+  // contenu est accepté, comme dans le client officiel.
+  var opponentGapBase = 10, selfBadgeGapBase = 8;
+  // 06db9866 : sur MOBILE la place latérale suit le style de siège
+  // (betSideOutset) — l'inset libère 28 px de base par flanc pour des boxes
+  // plus grandes, le classic réserve honnêtement la place du chip+montant.
+  // Desktop garde le forfait historique 48.
+  var sideBadgeGapBase = _st.mobile ? _st.outset : _st.sideGap;
+  // Slack de paire de la bisection — QML 2.1.8 : 12 en landscapeCompact
+  // (les paires hautes/latérales se touchaient visuellement sur iPhone
+  // mini), 4 sinon (l'ancien « 4 les deux modes » datait de 2.1.3).
+  var gap = compact ? 12 : 4;
+  // 2.1.3 (buildLandscapeSlots) : selfWeight 0.3 en wide (l'anneau se
+  // resserre autour de la self, TL/TR tombent a ~230/310 au lieu de
+  // 240/300) ; le landscapeCompact GARDE 0.5 (layout separe, inchange).
+  // Zuschauer (QML 2.1.3) : Sitz 0 est une perle NORMALE (poids 1.0) ->
+  // anneau uniforme de N sieges, sitz 0 exactement au point bas (90 deg).
+  var selfWeight = spectating ? 1.0 : (compact ? 0.5 : 0.3);
+  var stepDeg = oppCnt >= 1 ? 360 / (oppCnt + selfWeight) : 360;
+  var firstAngle = 90 + (selfWeight * stepDeg + stepDeg) / 2;
+  // Paires de l'anneau (feasibleAt QML) : en spectateur l'anneau commence au
+  // siege du bas (90 deg) et compte oppCnt+1 sieges -> la paire opp0<->opp1
+  // est verifiee (le wrap oppN<->opp0 est symetrique, donc couvert).
+  var ringFirst = spectating ? 90 : firstAngle;
+  var ringSeats = spectating ? oppCnt + 1 : oppCnt;
+
+  // Plafond dépendant du nombre de joueurs + croissance plein écran
+  // (√(w·h)) + rétreint dense sur fenêtres très larges — port exact.
+  function fillCap(maxScale) {
+    var base = 0.95;
+    var t = Math.max(0, Math.min(1, (oppCnt - 1) / 5));
+    var countCap = base + (maxScale - base) * t;
+    var grow = (1 - t) * Math.max(0, (Math.sqrt(zW * zH) - 760) / 700);
+    var denseShrink = t * Math.min(0.15, Math.max(0, (zW - 1024) / 4000));
+    return Math.min(2.2, countCap * (1 + grow) - denseShrink);
+  }
+
+  // Géométrie s-dépendante (mêmes formules pour la bisection ET les slots).
+  function geom(s, feas) {
+    var visualW = oppBaseW * s, visualH = oppBaseH * s;
+    // Zuschauer : pas de self-box sous l'ellipse -- son point bas EST le
+    // centre du siege du bas (selfVisualH = 0, selfGapY = 0, QML verbatim).
+    var selfVisualH = spectating ? 0 : selfBaseH * s;
+    var sideMargin = Math.max(18, zW * 0.025) + sideBadgeGapBase * s;
+    var selfGapY = spectating ? 0
+        : (compact ? Math.max(8, selfBadgeGapBase * s * 0.5) : selfBadgeGapBase * s);
+    var sideX = (sideMargin + visualW / 2) / Math.max(zW, 1);
+    var radiusX = Math.min(_st.radiusMax, Math.max(0.22, 0.5 - sideX));
+    // STRICT QML : la BISECTION (feasibleAt) réserve le surplomb badge haut
+    // (topBadgeExt 39·s en compact), mais buildLandscapeSlots trace les
+    // slots SANS cette réserve (deux ellipses distinctes, comme le source).
+    // 06db9866 : réserve de badge SOUS la box du haut supprimée sur mobile —
+    // depuis betSplit, la box haut-centre porte mise et puck À CÔTÉ d'elle,
+    // rien ne pend dessous ; la probe était plus pessimiste que le dessin et
+    // plafonnait les boxes (d'autant plus en inset). Desktop-ultrawide
+    // inchangé ; la distance community↔box du haut reste tenue par commScale.
+    var topBadgeExt = (compact && !_st.mobile) ? 39 : 0;
+    var topY = ((compact ? 0 : 12) + visualH / 2 + (feas ? topBadgeExt * s : 0)) / Math.max(zH, 1);
+    var selfTop = zH - 4 - selfVisualH;
+    var bottomY = (selfTop - selfGapY - visualH / 2) / Math.max(zH, 1);
+    var centerY = (topY + bottomY) / 2;
+    var radiusY = (bottomY - topY) / 2;
+    var maxBottomY = (selfTop + selfVisualH * 0.55 - visualH / 2) / Math.max(zH, 1);
+    var vMaxLower = radiusY > 0 ? (maxBottomY - centerY) / radiusY : 1.0;
+    var selfClearX = (selfBaseW * s / 2 + visualW / 2 + 12) / Math.max(zW, 1);
+    return { visualW: visualW, visualH: visualH, selfVisualH: selfVisualH,
+             radiusX: radiusX, radiusY: radiusY, centerY: centerY, selfTop: selfTop,
+             vMaxLower: vMaxLower, selfClearX: selfClearX };
+  }
+
+  var lowerSquash = compact ? 0.2 : 1.0;
+  var sideGravity = 0.25, topCosSquash = 1.4;
+  // 2.1.3 : fenetre quasi carree (aspect -> 1.0) — les sieges lateraux
+  // hauts sont souleves AU-DESSUS de la community (sinon overlap avec la
+  // rangee de cartes). Pondere par |cos| ; nul sur fenetres larges.
+  var sqLift = Math.max(0, Math.min(1, (1.6 - zW / Math.max(zH, 1)) / 0.6));
+  var gravityUpperOnly = compact;
+  var lowerGravity = compact ? 0.0 : 0.15;
+
+  // withPairSpread=false pour la bisection (comme feasibleAt QML),
+  // true pour les slots finaux (comme buildLandscapeSlots QML).
+  function slotVec(g, deg, withPairSpread) {
+    var rad = deg * Math.PI / 180;
+    var sinV = Math.sin(rad), cosV = Math.cos(rad), sinOrig = sinV;
+    if (sinV > 0 && lowerSquash !== 1.0) sinV = Math.pow(sinV, lowerSquash);
+    if (sinV <= 0 && Math.abs(cosV) > 1e-9)
+      cosV = (cosV < 0 ? -1 : 1) * Math.pow(Math.abs(cosV), topCosSquash);
+    var vFactor = sinV
+                + ((!gravityUpperOnly || sinV <= 0) ? sideGravity * Math.abs(cosV) : 0)
+                + (sinV > 0 ? lowerGravity * sinV : 0);
+    if (withPairSpread && !compact && Math.abs(cosV) > 1e-9) {
+      var ps = 0.02 * Math.abs(cosV);
+      vFactor += (sinOrig < 0 ? -ps : ps);
+    }
+    if (vFactor > 1.0) vFactor = 1.0;
+    if (vFactor < -1.0) vFactor = -1.0;
+    // 2.1.3 : arc superieur aplati en wide — sieges du haut tires de 18 %
+    // vers le centre (top-bogen flacher, plus d'air sous la status bar).
+    if (!compact && vFactor < 0) vFactor *= 0.82;
+    if (compact && !spectating && sinV > 0 && Math.abs(g.radiusX * cosV) > g.selfClearX && g.vMaxLower > vFactor)
+      vFactor = vFactor + (g.vMaxLower - vFactor) * sinOrig;
+    // 2.1.3 : sqLift (fenetres quasi carrees) — cote haut seulement.
+    if (!compact && sinV < 0 && sqLift > 0) {
+      vFactor -= 0.3 * sqLift * Math.abs(cosV);
+      if (vFactor < -1.0) vFactor = -1.0;
+    }
+    return [cosV, vFactor];
+  }
+
+  // ── AJUSTEMENT WEB (narmod 2026-09-28) : anneau spectateur en MIROIR ──
+  // Le QML ne resserre horizontalement que l'arc du HAUT (topCosSquash 1.4
+  // sur |cos|) : en spectateur, les voisins de la perle du bas etaient ~20 %
+  // plus ecartes que ceux du siege du haut (0.588 vs 0.475·radiusX a 10
+  // joueurs). Chaque siege de la moitie basse prend l'ecart HORIZONTAL du
+  // point de l'arc du haut a l'angle miroir (360 - deg) et garde sa hauteur
+  // QML. (Miroir vertical complet essaye puis ecarte : les paires laterales
+  // se retrouvaient presque a la meme hauteur, echelle 1.51 -> 0.82 a 10
+  // joueurs.) Utilise PARTOUT (bisection comprise) : la separation des paires
+  // reste garantie. Mode assis : strict QML, inchange.
+  function ringVec(g, deg, withPairSpread) {
+    if (!spectating) return slotVec(g, deg, withPairSpread);
+    var d = ((deg % 360) + 360) % 360;
+    if (Math.sin(d * Math.PI / 180) <= 1e-9) return slotVec(g, d, withPairSpread);
+    var vb = slotVec(g, d, withPairSpread);
+    return [slotVec(g, 360 - d, withPairSpread)[0], vb[1]];
+  }
+
+  function feasibleAt(s) {
+    if (oppCnt < 2) return true;
+    var g = geom(s, true);
+    if (g.radiusY <= 0 || g.radiusX <= 0) return false;
+    var radiusXpix = g.radiusX * zW, radiusYpix = g.radiusY * zH;
+    var centerYpix = g.centerY * zH;
+    // Contrainte community (wide régulier) : la rangée de cartes + badge du
+    // pot doivent tenir entre la plus basse box du haut et la self-box.
+    if (!compact) {
+      var topOppBottom = -1e9;
+      for (var iC = 0; iC < oppCnt; iC++) {
+        var vC = slotVec(g, firstAngle + iC * stepDeg, false);
+        if (vC[1] >= 0) continue;
+        var b = centerYpix + radiusYpix * vC[1] + g.visualH / 2
+              + (Math.abs(vC[0]) < 0.25 ? s * 25 : 0);
+        if (b > topOppBottom) topOppBottom = b;
+      }
+      // STRICT QML : réserve community proportionnelle à s (rangée 64 +
+      // badge pot 40 + winner 20 = 124, à 0.72·s, + pad 28) — verbatim
+      // GamePage.qml feasibleAt.
+      // Oberkante du contenu du bas : self-box, ou -- en spectateur -- le
+      // siege du bas de l'anneau lui-meme (QML : bottomYpix - visualH/2).
+      var bottomContentTop = spectating
+          ? (g.centerY + g.radiusY) * zH - g.visualH / 2
+          : (zH - 12 - g.selfVisualH);
+      if (topOppBottom > -1e9
+          && bottomContentTop - topOppBottom < 0.72 * s * 124 + 28)
+        return false;
+    }
+    // STRICT QML (feasibleAt verbatim) : les bet-badges latéraux SONT
+    // budgétés horizontalement (+sideBadgeGapBase) ; verticalement, la
+    // hauteur de box seule suffit.
+    var xNeeded = s * (oppBaseW + sideBadgeGapBase) + gap;
+    // AJUSTEMENT WEB (narmod 2026-07-19, carte blanche) : le QML ne garantit
+    // que gap=4 px de jour vertical entre boxes voisines -> a s eleve
+    // (fenetres larges, 8-9 adversaires) les paires laterales L_upper/
+    // L_lower semblent fusionner (constate 1719x730 M=9 : 12 px de jour a
+    // s=1.651). Slack vertical PROPORTIONNEL, min 4 px, strictement sans
+    // effet quand la bisection n'est pas contrainte par les paires
+    // (compact, petites fenetres, M<=5 : memes s qu'avant).
+    // 2e passe (narmod 19/07) : 0.14·boxH (~12·s) ne suffisait pas au
+    // BADGE GAGNANT (.seat-winner-badge : 16 px + offset 6, x s) — masque
+    // entre paires serrees (constate 1883x963 M=9). Budget = badge 16 +
+    // offset 6 + marge 4 = 26·s (~0.31·boxH), le badge du showdown tient
+    // desormais entre deux boxes voisines. ~7 % de taille en moins dans
+    // les configs denses concernees.
+    var yNeeded = s * oppBaseH + Math.max(gap, 26 * s);
+    for (var iPair = 1; iPair < ringSeats; iPair++) {
+      var v1 = ringVec(g, ringFirst + (iPair - 1) * stepDeg, false);
+      var v2 = ringVec(g, ringFirst + iPair * stepDeg, false);
+      if (Math.abs(v1[0] - v2[0]) * radiusXpix < xNeeded
+          && Math.abs(v1[1] - v2[1]) * radiusYpix < yNeeded)
+        return false;
+    }
+    return true;
+  }
+
+  // Heads-up : pas de paire à tester, seule la community doit tenir.
+  function feasibleHeadsUp(s) {
+    if (s <= 0) return false;
+    var visualH = oppBaseH * s, selfVisualH = selfBaseH * s;
+    var topYband = (compact ? 0 : 4) + visualH / 2;
+    var topOppBottom = topYband + visualH / 2 + s * 25;
+    // STRICT QML (feasibleHeadsUp verbatim) : réserve proportionnelle à s.
+    // Spectateur : le contenu du bas est le siege du bas (zH - 4 - visualH).
+    var bottomContentTop = spectating ? (zH - 4 - visualH) : (zH - 12 - selfVisualH);
+    return bottomContentTop - topOppBottom >= 0.72 * s * 124 + 28;
+  }
+
+  // Zoom « dans le layout » : sémantique s = base × zoom, bornée par la
+  // faisabilité (murs / paires / community / self). Le plafond de bisection
+  // n'est relevé que pour le zoom AVANT ; le dézoom réduit proportionnellement.
+  var _zm = Math.max(0.3, Math.min(2, zoomMul || 1));
+  var _capBase = fillCap(compact ? 2.3 : 1.9);
+  var lo = 0.55, hi = _capBase * Math.max(1, _zm), sFin;   // A : plafond officiel 2.1.3 (× zoom avant seulement)
+  if (hi < lo) hi = lo;
+  if (oppCnt < 2) {
+    if (!feasibleHeadsUp(lo)) sFin = lo;
+    else if (feasibleHeadsUp(hi)) sFin = hi;
+    else { for (var iH = 0; iH < 14; iH++) { var mH = (lo + hi) / 2; if (feasibleHeadsUp(mH)) lo = mH; else hi = mH; } sFin = lo; }
+  } else if (!feasibleAt(lo)) {
+    sFin = lo;
+  } else if (feasibleAt(hi)) {
+    sFin = hi;
+  } else {
+    for (var it = 0; it < 14; it++) { var mid = (lo + hi) / 2; if (feasibleAt(mid)) lo = mid; else hi = mid; }
+    sFin = lo;
+  }
+
+  // Sémantique du zoom (voir en tête) : sMaxZ = sFin (faisabilité au plafond
+  // étendu) ; s1 = référence zoom 1 = min(sMaxZ, plafond de base) — la
+  // bisection est monotone, pas besoin d'un second passage.
+  var sMaxZ = sFin;
+  var s1 = Math.min(sMaxZ, _capBase);
+  if (_zm <= 1.001) sFin = Math.max(0.55, s1 * _zm);
+  else sFin = Math.max(s1, Math.min(s1 * _zm, sMaxZ));
+  // Rabot WEB (demande narmod 2026-07-16) : en paysage compact SPECTATEUR,
+  // l'ellipse recupere toute la hauteur (pas de self-box) et la bisection
+  // monte plus haut qu'en mode assis -> boites trop grosses sur telephone.
+  // -15 % sur le resultat, spectateur compact UNIQUEMENT (assis et desktop
+  // restent strict QML). Les slots sont traces au s reduit (coherents).
+  if (spectating && compact) sFin = Math.max(0.55, sFin * 0.85);
+  // Rabot WEB (web.94, trouvé par scripts/test-table-sweep.mjs) : pendant du
+  // plafond « self <= 28 % » du mode assis ci-dessous. En paysage compact
+  // SPECTATEUR à faible effectif (3-4 joueurs) rien ne bornait la hauteur des
+  // boîtes : sur un téléphone à plat (zone 734x243) elles montaient à ~1.0-1.15
+  // et le siège du bas + celui du haut recouvraient les cartes communes et le
+  // badge du pot (constaté aussi sur 1040x480 à 4 joueurs). On plafonne la
+  // boîte à 30 % de la hauteur de zone : il reste >= 40 % pour la rangée
+  // community et son pot. Sans effet à fort effectif (déjà borné par le
+  // non-chevauchement), ni assis, ni desktop, ni portrait.
+  if (spectating && compact) { var _hCapS = 0.30 * zH / oppBaseH; if (sFin > _hCapS) sFin = Math.max(0.55, _hCapS); }
+  // Rabot WEB (narmod 2026-07-20) : en paysage compact ASSIS sur une zone
+  // tres plate (peu de joueurs), l'ellipse s'aplatit (radiusY -> 0) et laisse
+  // les boxes/self monter a ~taille pleine (constate 3-4 joueurs : boxScale
+  // ~0.99 sur zone 844x227). On plafonne pour que la self ne depasse pas 28 %
+  // de la hauteur de zone -> seats/self coherents a faible effectif, sans effet
+  // a fort effectif (deja bornes par le non-chevauchement) ni sur desktop /
+  // portrait / spectateur (strict QML conserve).
+  if (compact && !spectating) { var _hCap = 0.28 * zH / selfBaseH; if (sFin > _hCap) sFin = Math.max(0.55, _hCap); }
+  // Slots finaux aux rayons du s retenu (pairSpread actif, comme le QML).
+  var gF = geom(sFin, false);
+  var slots = [], raw = [];
+  // Zuschauer : sitz 0 = point(90), exactement au point bas de l'ellipse
+  // (slots["opp0"] du QML). Expose via seat0 ; selfX/selfY inutilises.
+  var seat0 = null;
+  if (spectating) {
+    var v90 = slotVec(gF, 90, true);
+    seat0 = { x: zW * (0.5 + gF.radiusX * v90[0]), y: zH * (gF.centerY + gF.radiusY * v90[1]) };
+  }
+  for (var k = 0; k < oppCnt; k++) {
+    var dK = firstAngle + k * stepDeg;
+    var v = ringVec(gF, dK, true);
+    slots.push({ x: zW * (0.5 + gF.radiusX * v[0]), y: zH * (gF.centerY + gF.radiusY * v[1]) });
+    // Slots SANS pairSpread : l'invariant de séparation garanti par la
+    // bisection (exposé pour les tests déterministes).
+    var v0 = ringVec(gF, dK, false);
+    raw.push({ x: zW * (0.5 + gF.radiusX * v0[0]), y: zH * (gF.centerY + gF.radiusY * v0[1]) });
+  }
+  // ── flankWide (QML seatNudge/slotForSeat, 2.1.3 vérifié dans le source
+  // extrait) : en paysage NON-compact, les 2 sièges FLANQUANT la self
+  // (premier et dernier de l'ordre) situés en moitié basse descendent de
+  // 0.6·hauteur de box (ils mordent la bande self, coins libres) et sont
+  // tirés horizontalement contre elle : centre ± (selfW/2 + 40 + oppW/2)·s
+  // + 18. Appliqué au RENDU seulement (comme pairSpread), hors bisection. ──
+  if (!compact && !spectating && oppCnt >= 1) {   // flankWide : jamais en spectateur (QML slotForSeat)
+    var _fkIdx = oppCnt >= 2 ? [0, oppCnt - 1] : [0];
+    for (var _fi2 = 0; _fi2 < _fkIdx.length; _fi2++) {
+      var _sl = slots[_fkIdx[_fi2]];
+      if (!_sl || _sl.y <= 0.5 * zH) continue;
+      _sl.y += oppBaseH * sFin * 0.6;
+      var _dir = _sl.x < 0.5 * zW ? -1 : 1;
+      var _wantC = zW / 2 + _dir * (selfBaseW * sFin / 2 + 40 * sFin + oppBaseW * sFin / 2 + 18);
+      var _dX = _wantC - _sl.x;
+      _sl.x += (_dir < 0 ? Math.min(0, _dX) : Math.max(0, _dX));
+    }
+  }
+  // ── Remontée spectateur (demande narmod 2026-07-20) : le QML « pur » écrase
+  // les DEUX sièges qui encadrent la perle du bas (termes sideGravity +
+  // lowerGravity du slotVec) → trois boîtes alignées au ras du bas de l'écran.
+  // Ajustement WEB ADDITIF (base QML inchangée, comme flankWide/pairSpread) :
+  // on remonte slots[0] et slots[oppCnt-1] à leur position d'ellipse PURE
+  // (vFactor = sin de l'angle, sans la gravité vers le bas) → collier ouvert
+  // plus rond. Appliqué au RENDU seulement, spectateur + paysage, toutes
+  // résolutions. Symétrique (même y aux deux) + garde anti-chevauchement
+  // (bisection) contre tous les autres sièges, perle incluse : sur les configs
+  // denses (N=10, laptop) la remontée est réduite juste ce qu'il faut.
+  if (spectating && oppCnt >= 2) {
+    var _flk = [0, oppCnt - 1];
+    var _bwF = oppBaseW * sFin, _bhF = oppBaseH * sFin;
+    var _boxes = [];
+    if (seat0) _boxes.push(seat0);
+    for (var _bi = 0; _bi < slots.length; _bi++) _boxes.push(slots[_bi]);
+    var _pearlOff = seat0 ? 1 : 0;
+    var _hitAny = function (ax, ay, skipIdx) {
+      for (var _hi = 0; _hi < _boxes.length; _hi++) {
+        if (_hi === skipIdx) continue;
+        var o = _boxes[_hi];
+        var ox = Math.min(ax + _bwF / 2, o.x + _bwF / 2) - Math.max(ax - _bwF / 2, o.x - _bwF / 2);
+        var oy = Math.min(ay + _bhF / 2, o.y + _bhF / 2) - Math.max(ay - _bhF / 2, o.y - _bhF / 2);
+        if (ox > 2 && oy > 2) return true;
+      }
+      return false;
+    };
+    // y réalisable (le plus haut sans collision) pour un flanc donné.
+    var _liftedY = function (slotIdx) {
+      var boxIdx = _pearlOff + slotIdx, p = _boxes[boxIdx];
+      var dK = firstAngle + slotIdx * stepDeg;
+      var _sinT = Math.sin(dK * Math.PI / 180);
+      if (_sinT > 1) _sinT = 1; else if (_sinT < -1) _sinT = -1;
+      var tY = zH * (gF.centerY + gF.radiusY * _sinT);   // ellipse pure
+      if (tY >= p.y) return p.y;                          // jamais descendre
+      var lo = 0, hi = 1, okY = p.y;
+      for (var _it = 0; _it < 16; _it++) {
+        var mf = (lo + hi) / 2, cy = p.y + (tY - p.y) * mf;
+        if (_hitAny(p.x, cy, boxIdx)) hi = mf; else { lo = mf; okY = cy; }
+      }
+      return okY;
+    };
+    // Symétrie : on applique la remontée la plus faible (max y) aux deux flancs.
+    var _yLift = Math.max(_liftedY(_flk[0]), _liftedY(_flk[1]));
+    for (var _ri = 0; _ri < _flk.length; _ri++) {
+      var _s2 = slots[_flk[_ri]];
+      if (_s2 && _yLift < _s2.y) _s2.y = _yLift;
+    }
+  }
+  // ── Recentrage vertical du ring spectateur (QML stable 2.1.5+, GamePage
+  // slotPos) : sideGravity/lowerGravity tirent l'anneau vers le bas — avec
+  // self-box c'est voulu (le ring se referme autour d'elle), mais en
+  // spectateur le siège du bas colle au bord de la fenêtre pendant qu'un
+  // grand vide reste en haut (« Bodensitz am Fensterrand klebt »). Fix QML
+  // verbatim : le ring FINI (perle du bas + tous les sièges, remontée web
+  // incluse) est translaté verticalement pour égaliser les marges haut/bas.
+  // Translation pure : paires, bisection et distance sièges↔community
+  // (mesurée sur les plates peintes) suivent sans changement. ──
+  if (spectating) {
+    var _halfHc = oppBaseH * sFin / 2;
+    var _allC = seat0 ? [seat0].concat(slots) : slots.slice();
+    var _minYc = Infinity, _maxYc = -Infinity;
+    for (var _ci = 0; _ci < _allC.length; _ci++) {
+      var _cy2 = _allC[_ci].y;
+      if (_cy2 < _minYc) _minYc = _cy2;
+      if (_cy2 > _maxYc) _maxYc = _cy2;
+    }
+    if (_minYc < Infinity) {
+      var _shiftYc = ((zH - (_maxYc + _halfHc)) - (_minYc - _halfHc)) / 2;
+      for (var _sic = 0; _sic < _allC.length; _sic++) _allC[_sic].y += _shiftYc;
+      for (var _rac = 0; _rac < raw.length; _rac++) raw[_rac].y += _shiftYc;
+    }
+  }
+  return { s: sFin, slots: slots, raw: raw, seat0: seat0,
+           oppBaseH: oppBaseH, selfBaseH: selfBaseH,
+           // Ancre de la selfBox : QML = anchors.bottomMargin 12 en paysage
+           // (wide) ; ajustement WEB (demande narmod 2026-07-17) : marge
+           // visuelle 24 pour décoller la self de la barre d'action flottante
+           // (le panneau web monte plus haut que la barre QML). La réserve
+           // interne de la bisection garde -4 (identique au QML).
+           selfX: zW * 0.5, selfY: zH - 24 - gF.selfVisualH / 2 };
+}
+if (typeof window !== 'undefined') window._qmlLandscapeLayout = _qmlLandscapeLayout;  // garde node ajoutée à l'extraction
+// ── QML_LANDSCAPE_LAYOUT_END ──
+
+// Positions des sièges en mode 'official' (slots fixes du client PokerTH).
+// Retourne [self, opp1, opp2, …] en px relatifs à la zone (top/left = CENTRE
+// du siège, cf. transform translate(-50%,-50%)). Index 0 = null : la self
+// garde sa position classique. Les adversaires (ordre de table depuis la self)
+// sont mappés sur les slots, séquence symétrique par nombre d'adversaires.
+//   Portrait : 2 colonnes G/D + rangée haute (client QML — cf. capture).
+//   Paysage  : grille périmètre, 5 sièges en haut + sièges bas (client desktop).
+// Fractions = part de la zone (x: 0=gauche..1=droite, y: 0=haut..1=bas).
+// Hors plage (>9 adversaires) : retourne null -> calcul classique conservé.
+// ── Échelle & rangées PORTRAIT officielles (GamePage.qml boxScale, branche
+// Hochformat, 2.1.8 + upstream 06db9866) :
+//   DESKTOP (slots fixes slotPosPortraitFixed) : bisection historique — murs
+//   (0.15·W / 0.075·H), self-box vs rangée bottom (opp >= 8, nudge +14
+//   intégré : 0.215·H − 26), séparation de paires (voisins de
+//   slotSeqPortrait : dx OU dy >= boîte·s + 8). Plafond fillCap(1.85).
+//   MOBILE (06db9866) : les rangées sont DYNAMIQUES (buildPortraitSlots,
+//   dérivées de la taille réelle des boxes comme en paysage) ; la bisection
+//   teste exactement la fonction qui dessine (aucune circularité) — il ne
+//   reste que les bornes réelles : largeur d'écran, colonnes face à face
+//   (+2·betSideOutset), bande centrale pour la community
+//   (portraitBandAt/portraitCommunityNeed). Plafond fillCap(2.0, base 1.15).
+// Plancher 0.55, 14 itérations. Fonctions PURES (opts pour les tests Node).
+function _qmlPortraitLayout(oppCnt, zW, zH, zoomMul, spectating, opts) {
+  var _st = _seatGeomOpts(opts);
+  var _strip = _st.strip;
+  // Bases QML 2.1.8 (tableZone) : le socle inset (betStripExtra 20) entre
+  // dans la HAUTEUR ; la largeur le re-déduit (rowH = 71+strip−28−strip = 43
+  // → 121, quel que soit le style). STRICT : jamais les dims mesurées.
+  var oppH = 71 + _strip;
+  var _rowHp = oppH - 28 - _strip;
+  var oppW = 2 * 4 + _rowHp + 4 + 2 * Math.round(_rowHp * 120 / 168) + 4;
+  var selfH = spectating ? oppH : 82 + _strip;
+  var SLOTS = { L_bottom:[0.15,0.785], L_lower:[0.15,0.65], L_upper:[0.15,0.345],
+                TL:[0.15,0.21], TC:[0.50,0.075], TR:[0.85,0.21],
+                R_upper:[0.85,0.345], R_lower:[0.85,0.65], R_bottom:[0.85,0.785],
+                BC:[0.50,0.90] };   // BC : uniquement en spectateur (QML 2.1.3)
+  var SEQ = {
+    1:['TC'], 2:['TL','TR'], 3:['TL','TC','TR'],
+    4:['L_upper','TL','TR','R_upper'], 5:['L_upper','TL','TC','TR','R_upper'],
+    6:['L_lower','L_upper','TL','TR','R_upper','R_lower'],
+    7:['L_lower','L_upper','TL','TC','TR','R_upper','R_lower'],
+    8:['L_bottom','L_lower','L_upper','TL','TR','R_upper','R_lower','R_bottom'],
+    9:['L_bottom','L_lower','L_upper','TL','TC','TR','R_upper','R_lower','R_bottom']
+  };
+  var seq = SEQ[oppCnt] || [];
+  // Zuschauer (slotSeqSpectate QML) : sitz 0 prend BC et les oppCnt suivants
+  // la sequence portrait normale -> anneau de oppCnt+1.
+  if (spectating) seq = ['BC'].concat(seq);
+  var ringCnt = spectating ? oppCnt + 1 : oppCnt;
+  var gapP = 8;
+  var mobileP = _st.mobile;
+  var opponentGapBase = 10, selfBadgeGapBase = 8;
+
+  // buildPortraitSlots (06db9866, port verbatim) : rangées de sièges dérivées
+  // de la taille réelle des boxes — fonction PURE de l'échelle, elle sert au
+  // dessin ET aux probes de la bisection sans circularité. Les fractions
+  // figées ci-dessus étaient taillées pour la box SANS socle (20 px plus
+  // basse) : leur pas de rangée plafonnait la bisection en style inset
+  // pendant que la bande centrale (0.305·H) gaspillait de la place.
+  function buildPortraitSlots(s) {
+    var W = Math.max(zW, 1), H = Math.max(zH, 1);
+    var vW = oppW * s, vH = oppH * s;
+    var selfVH = spectating ? 0 : selfH * s;
+    // Pas de rangée volontairement > gapP (8) de la probe : sinon distance
+    // construite et distance exigée coïncident exactement et la probe bascule
+    // sur l'erreur d'arrondi du détour par les fractions 0..1 (échelle au
+    // plancher 0.55).
+    var gapY = Math.max(opponentGapBase, opponentGapBase * s);
+    // Les colonnes suivent la box vers l'extérieur (marge 4 px) au lieu de
+    // buter sur les 15 %/85 % figés.
+    // WEB (Interface size > 1): the scaled community cards need the full
+    // width between the side columns, so the columns hug the 4 px wall
+    // instead of stopping at the QML 15 %/85 % minimum.
+    var colX = Math.max(_st.interfaceScale > 1 ? 0 : 0.15, (4 + vW / 2) / W);
+    var step = vH + gapY;
+    var yTC = 4 + vH / 2;
+    var yTop = yTC + step;
+    var yUpper = yTop + step;
+    // Rangée du bas : juste au-dessus de la self-box — ou, en spectateur,
+    // au-dessus du siège de sol BC qui la remplace.
+    var yBC = H - 4 - vH / 2;
+    var yBottom = spectating
+        ? yBC - step
+        : H - _st.selfBottom - selfVH - Math.max(8, selfBadgeGapBase * s) - vH / 2;
+    // La rangée bottom n'est occupée qu'à partir de 8 sièges d'anneau ;
+    // tant qu'elle est vide, la rangée lower descend elle-même à la butée.
+    var yLower = ((spectating ? ringCnt - 1 : ringCnt) >= 8) ? yBottom - step : yBottom;
+    // Frein d'urgence : si la hauteur ne suffit même pas au plancher 0.55,
+    // groupes haut et bas s'écartent symétriquement au pas minimal (la
+    // community n'a alors plus de bande, mais les boxes restent empilées
+    // proprement).
+    if (yLower - yUpper < step) {
+      var mid = (yUpper + yLower) / 2;
+      yUpper = mid - step / 2;
+      yLower = mid + step / 2;
+    }
+    return { L_bottom:[colX,     yBottom / H],
+             L_lower: [colX,     yLower  / H],
+             L_upper: [colX,     yUpper  / H],
+             TL:      [colX,     yTop    / H],
+             TC:      [0.50,     yTC     / H],
+             TR:      [1 - colX, yTop    / H],
+             R_upper: [1 - colX, yUpper  / H],
+             R_lower: [1 - colX, yLower  / H],
+             R_bottom:[1 - colX, yBottom / H],
+             BC:      [0.50,     yBC     / H] };
+  }
+  // Slots du groupe HAUT ; tout le reste (BC inclus) compte au groupe bas.
+  function portraitUpperSlot(name) {
+    return name === 'TC' || name === 'TL' || name === 'TR'
+        || name === 'L_upper' || name === 'R_upper';
+  }
+  // Bande centrale libre [haut, bas] en px : de la plus basse box du groupe
+  // haut à la plus haute box du groupe bas (ou de la self-box).
+  function portraitBandAt(s, pos) {
+    var vH = oppH * s;
+    var top = 4;
+    var bottom = spectating ? zH - 4 : zH - _st.selfBottom - selfH * s;
+    for (var i = 0; i < seq.length; i++) {
+      var p = pos[seq[i]];
+      if (!p) continue;
+      var cy = p[1] * zH;
+      if (portraitUpperSlot(seq[i])) { if (cy + vH / 2 > top) top = cy + vH / 2; }
+      else if (cy - vH / 2 < bottom) bottom = cy - vH / 2;
+    }
+    return [top, bottom];
+  }
+  // Hauteur que la rangée community (cartes 64 + badge pot 40 + winner 20)
+  // doit trouver dans la bande ; son échelle suit les boxes (0.8·s).
+  function portraitCommunityNeed(s) {
+    var cs = Math.max(0.55, Math.min(0.8 * s, 1.8, Math.max(0, zW - 16) / 264));
+    return 124 * cs + 20;
+  }
+
+  var _zm = Math.max(0.3, Math.min(2, zoomMul || 1));
+  // zoomed = bisection du ZOOM AVANT : les marges de confort tombent —
+  // seules restent les règles dures : rester DANS le tapis, ne pas se
+  // CHEVAUCHER (2 px de contact mini) et laisser >= 88 px à la rivière.
+  // Au repos (zoom 1), marges QML inchangées.
+  function feas(sT, zoomed) {
+    if (sT <= 0) return false;
+    var vW = oppW * sT, vH = oppH * sT, sH = selfH * sT;
+    if (mobileP) {
+      // 06db9866 : murs = la seule largeur d'écran (les colonnes suivent la
+      // box) ; bande centrale porteuse de la community ; colonnes face à
+      // face avec la place des mises/pucks (2·betSideOutset). Le pas de
+      // rangée est garanti par construction ; la boucle de paires reste en
+      // garde-fou.
+      var posM = buildPortraitSlots(sT);
+      if (vW > zW - (zoomed ? 0 : 8)) return false;
+      var bandM = portraitBandAt(sT, posM);
+      if (bandM[1] - bandM[0] < (zoomed ? 88 : portraitCommunityNeed(sT))) return false;
+      var gapM = zoomed ? 2 : gapP;
+      var xM = sT * (oppW + 2 * _st.outset) + gapM;
+      var yM = sT * oppH + gapM;
+      for (var iM = 0; iM < seq.length - 1; iM++) {
+        var aM = posM[seq[iM]], bM = posM[seq[iM + 1]];
+        if (!aM || !bM) continue;
+        if (Math.abs(aM[0] - bM[0]) * zW < xM && Math.abs(aM[1] - bM[1]) * zH < yM) return false;
+      }
+      return true;
+    }
+    var wallM = zoomed ? 0 : 4;
+    var gapC  = zoomed ? 2 : gapP;
+    if (vW > 2 * (0.15 * zW - wallM)) return false;
+    if (vH > 2 * (0.075 * zH - wallM)) return false;
+    if (spectating) {
+      // Mur bas : le siege BC (y=0.90) ne doit pas toucher le bord bas ;
+      // pas de self-box a proteger (QML feasibleAtP verbatim).
+      if (0.90 * zH + vH / 2 > zH - wallM) return false;
+    } else if (oppCnt >= 8 && 0.215 * zH - (zoomed ? 16 : 26) - sH - vH / 2 < gapC) return false;
+    if (zoomed && (0.65 - 0.345) * zH - vH < 88) return false;
+    var xN = vW + gapC, yN = vH + gapC;
+    for (var i = 0; i < seq.length - 1; i++) {
+      var a = SLOTS[seq[i]], b = SLOTS[seq[i + 1]];
+      if (!a || !b) continue;
+      var dx = Math.abs(a[0] - b[0]) * zW, dy = Math.abs(a[1] - b[1]) * zH;
+      if (dx < xN && dy < yN) return false;
+    }
+    return true;
+  }
+  function bisectP(hiB, commGuard) {
+    var loB = 0.55; if (hiB < loB) hiB = loB;
+    if (!feas(loB, commGuard)) return loB;
+    if (feas(hiB, commGuard)) return hiB;
+    for (var it = 0; it < 14; it++) { var mP = (loB + hiB) / 2; if (feas(mP, commGuard)) loB = mP; else hiB = mP; }
+    return loB;
+  }
+  // Plafond : desktop fillCap(1.85) historique ; mobile fillCap(2.0, base
+  // 1.15) (06db9866) — les rangées dynamiques bornent par la géométrie
+  // réelle, un heads-up en portrait doit pouvoir utiliser la place.
+  var base = mobileP ? 1.15 : 0.95, t = Math.max(0, Math.min(1, (oppCnt - 1) / 5));
+  var countCap = base + ((mobileP ? 2.0 : 1.85) - base) * t;
+  var grow = (1 - t) * Math.max(0, (Math.sqrt(zW * zH) - 760) / 700);
+  var denseShrink = t * Math.min(0.15, Math.max(0, (zW - 1024) / 4000));
+  var hiCap = Math.min(2.2, countCap * (1 + grow) - denseShrink);
+  // AJUSTEMENT WEB (web.73, narmod 15/10) : en portrait téléphone, sièges
+  // plafonnés à 1.2. Le fillCap QML monte de 1.15 (1 adversaire) à 2.0 (6) :
+  // à 4 joueurs (TL · TC · TR) rien d'autre ne limite et les boîtes passaient
+  // à ~1.45 contre ~1.15 à 3 et 5 joueurs — un pic jugé trop gros. Le
+  // plafond rend la taille quasi constante ; desktop et paysage inchangés.
+  if (mobileP) hiCap = Math.min(hiCap, 1.2);
+  // Sémantique du zoom : s = base × zoom, BORNÉ par la faisabilité.
+  //   zoom <= 1 : réduction proportionnelle directe (toujours faisable) ;
+  //   zoom > 1  : croissance proportionnelle plafonnée par la bisection
+  //               étendue (garde community incluse), jamais sous la base.
+  var s1 = bisectP(hiCap, false);
+  var sP;
+  if (_zm <= 1.001) sP = s1 * _zm;
+  else sP = Math.max(s1, Math.min(s1 * _zm, bisectP(hiCap * _zm, true)));
+  var sFinal = Math.max(0.55, sP);
+  var out = { s: sFinal, mobile: mobileP, oppW: oppW, oppH: oppH, selfH: selfH };
+  if (mobileP) {
+    out.slots = buildPortraitSlots(sFinal);
+    out.band = portraitBandAt(sFinal, out.slots);
+  } else {
+    out.slots = SLOTS;   // fractions fixes ; nudges px appliqués par l'appelant
+    out.band = null;
+    // WEB (Interface size > 1): same wall-hugging columns as the mobile rows,
+    // so the scaled community cards keep the width between the side columns.
+    if (_st.interfaceScale > 1) {
+      var colD = Math.max(0, Math.min(0.15, (4 + oppW * sFinal / 2) / Math.max(zW, 1)));
+      var slD = {};
+      for (var kD in SLOTS) {
+        var xD = SLOTS[kD][0];
+        slD[kD] = [xD === 0.15 ? colD : (xD === 0.85 ? 1 - colD : xD), SLOTS[kD][1]];
+      }
+      out.slots = slD;
+    }
+  }
+  return out;
+}
+function _qmlPortraitScale(oppCnt, zW, zH, zoomMul, spectating, opts) {
+  return _qmlPortraitLayout(oppCnt, zW, zH, zoomMul, spectating, opts).s;
+}
+if (typeof window !== 'undefined') { window._qmlPortraitScale = _qmlPortraitScale; window._qmlPortraitLayout = _qmlPortraitLayout; }  // garde node ajoutée à l'extraction
+
+function _officialSeatPix(n, isPortrait, zW, zH, oCX, oCY, oRect, boxScale, zoomMul, spectating, opts) {
+  var M = n - 1; // adversaires
+  if (M < 1) return null;
+  var _small = (boxScale || 1) < 0.99; // petit ecran : resserrer l'anneau vers le feutre
+  // ── PORTRAIT : slots officiels QML (GameTable.qml slotPosPortrait) ──
+  // Valeurs alignees 1:1 sur le client officiel + nudge px (slotForSeat) :
+  // sieges du bas +14px, sieges du haut -4px (px de la zone de jeu).
+  if (isPortrait) {
+    var SEQ_P = {
+      1:['TC'], 2:['TL','TR'], 3:['TL','TC','TR'],
+      4:['L_upper','TL','TR','R_upper'], 5:['L_upper','TL','TC','TR','R_upper'],
+      6:['L_lower','L_upper','TL','TR','R_upper','R_lower'],
+      7:['L_lower','L_upper','TL','TC','TR','R_upper','R_lower'],
+      8:['L_bottom','L_lower','L_upper','TL','TR','R_upper','R_lower','R_bottom'],
+      9:['L_bottom','L_lower','L_upper','TL','TC','TR','R_upper','R_lower','R_bottom']
+    };
+    var seqP = SEQ_P[M];
+    if (!seqP) return null;
+    // Échelle + slots par la même fonction que la bisection (06db9866) :
+    // DESKTOP = fractions fixes du QML (slotPosPortraitFixed) + nudge px du
+    // build 28/06 (+14 rangées basses, −4 rangées hautes, TC 0) ; MOBILE =
+    // rangées dynamiques buildPortraitSlots — spreads et compensation de
+    // socle sont déjà DANS les valeurs de slot, donc nudge 0 (QML verbatim).
+    var layP = _qmlPortraitLayout(M, zW, zH, zoomMul, spectating, opts);
+    var SLOTS_P = layP.slots;
+    var NUDGE_P = layP.mobile ? null
+        : { L_bottom:14, R_bottom:14, L_lower:14, R_lower:14,
+            TL:-4, TR:-4, L_upper:-4, R_upper:-4, TC:0 };
+    // Spectateur (slotSeqSpectate QML) : le joueur d'index 0 prend le slot
+    // BC -- il n'y a pas de self-box -- et les M suivants gardent la
+    // sequence portrait normale. BC dynamique sur mobile (bas d'écran −4).
+    var outP = [ spectating ? { left: SLOTS_P.BC[0] * zW, top: SLOTS_P.BC[1] * zH } : null ];
+    for (var i = 0; i < seqP.length; i++) {
+      var nm = seqP[i];
+      outP.push({ left: SLOTS_P[nm][0] * zW, top: SLOTS_P[nm][1] * zH + (NUDGE_P ? (NUDGE_P[nm] || 0) : 0) });
+    }
+    outP._boxScale = layP.s;
+    // Bande centrale [haut, bas] px (mobile uniquement) : consommée par la
+    // rangée community (échelle + centrage), null sur desktop (formules
+    // fixes historiques).
+    outP._portraitBand = layP.band;
+    outP._portraitMobile = layP.mobile;
+    // Marge de zoom restante (grise le bouton + au plafond de faisabilité) :
+    // l'échelle bouge-t-elle encore au cran de zoom suivant ?
+    var _znP = Math.min(2, (zoomMul || 1) + 0.1);
+    outP._zoomHeadroom = _qmlPortraitScale(M, zW, zH, _znP, spectating, opts) > outP._boxScale + 0.004;
+    return outP;
+  }
+  // ── PAYSAGE : ellipse officielle — DÉLÉGUÉE au port 1:1 du QML ──
+  // (_qmlLandscapeLayout ci-dessus : bisection boxScale + rayons
+  // s-dépendants + correctifs). compact = landscapeCompact QML
+  // (paysage && hauteur fenêtre < 600, bible §2). L'échelle retournée
+  // est propagée via out._boxScale (appliquée en transform scale sur
+  // chaque siège, comme le boxScale du client officiel).
+  // landscapeCompact complet (bible §2, build 28/06) : mobile = hauteur
+  // < 600 ; desktop = ratio > 2.1 ET hauteur < 1300 (un 16:9 MAXIMISE,
+  // ratio ~1.91, n'est PAS compact — aligne sur le client officiel 2.1.1). Union des
+  // deux règles : couvre téléphones ET fenêtres desktop très aplaties.
+  var _wH = (typeof window !== 'undefined') ? window.innerHeight : zH;
+  var _wW = (typeof window !== 'undefined') ? window.innerWidth  : zW;
+  // Adaptation WEB du landscapeCompact desktop : le QML utilise
+  // ratio>2.1 && h<1300 en mesurant SA fenetre ; dans un navigateur la
+  // chrome + barres systeme mangent la hauteur et gonflent le ratio ->
+  // une fenetre desktop banale (ex. 1920x950, ratio 2.02-2.2) passait
+  // compact a tort et ecrasait les paires de sieges laterales. On exige
+  // une fenetre REELLEMENT aplatie : h < 800.
+  var compact = _wH < 600 || (_wW / Math.max(_wH, 1) > 2.1 && _wH < 800);
+  var lay = _qmlLandscapeLayout(M, zW, zH, compact, zoomMul, spectating, opts);
+  // Spectateur : le joueur d'index 0 est une perle normale au point bas de
+  // l'ellipse (opp0 = point(90) du QML) ; sinon null (self geree a part).
+  var out = [ (spectating && lay.seat0) ? { top: lay.seat0.y, left: lay.seat0.x } : null ];
+  for (var ke = 0; ke < M; ke++) out.push({ top: lay.slots[ke].y, left: lay.slots[ke].x });
+  out._boxScale = lay.s;
+  // Marge de zoom restante (bouton +) au cran suivant — bisection pure, ~gratuit.
+  var _znL = Math.min(2, (zoomMul || 1) + 0.1);
+  out._zoomHeadroom = _qmlLandscapeLayout(M, zW, zH, compact, _znL, spectating, opts).s > lay.s + 0.004;
+  // Position officielle de la self = "grosse perle" au point bas de l'ellipse
+  // (appliquée par l'appelant quand la player-bar est masquée). out[0] reste
+  // null pour ne pas perturber le cas spectateur.
+  out._self = { top: lay.selfY, left: lay.selfX };
+  // Bases QML (socle inclus) : consommées par la communityScale paysage
+  // (topOpponentBottomY / selfVisualTopY du GamePage, calculés sur le modèle).
+  out._oppBaseH = lay.oppBaseH;
+  out._selfBaseH = lay.selfBaseH;
+  return out;
+}
+
+// ── Anti-sautillement du fond « center » (constaté narmod 10/09/2026,
+// vidéo : fin de mon tour → tout le tapis descend d'1 px). cY est un
+// barycentre MESURÉ sur les rects DOM des plates : ouverture du socle, fin du
+// scale de tour, badge d'action le déplacent d'une fraction de pixel, et
+// Math.round() en faisait un saut d'un pixel entier de TOUTE l'image. Le QML
+// n'a pas ce bruit (slots théoriques). On garde donc la taille/position déjà
+// posées tant que la géométrie structurelle est la même (zone, #s-game,
+// image, zoom, orientation) ET que l'écart reste ≤ BG_DYN_TOL px ; un resize
+// ou un changement de style recalcule exactement. Fonction pure (testée).
+const BG_DYN_TOL = 3;
+function _bgDynKeep(prev, next, tol) {
+  if (!prev || !next || prev.key !== next.key) return false;
+  var t = (tol == null) ? BG_DYN_TOL : tol;
+  return Math.abs(prev.w - next.w) <= t && Math.abs(prev.h - next.h) <= t &&
+         Math.abs(prev.x - next.x) <= t && Math.abs(prev.y - next.y) <= t;
+}
+
+// Port de GamePage.qml tableBackgroundImage : taille et position du fond
+// calculées pour couvrir la bande tableZone(+action bar en wide) — cadre qui
+// EXCLUT la barre de statut (#pot-strip, GameStatusBar QML) au-dessus, comme
+// tableZone dans GamePage.qml. Deux modes, selon TableBackgroundAlign :
+//  - align:center (danuxi, matrix, star_trek...) : centré sur
+//    (zoneW/2, communityCenterY), × zoom du style (TableBackgroundZoom).
+//  - align:bottom (mile_high_club, bbc_anthem, teal, lemming...) : simple
+//    cover centré dans le cadre, SANS le zoom ni communityCenterY — QML met
+//    x:0/y:0, width/height = tableZone(+actionBar) et laisse PreserveAspectCrop
+//    centrer tout seul (centerZoom vaut 1.0 hors centerMode, cf. GamePage.qml).
+// Pose --wallpaper-dyn-size/pos (prioritaires sur --wallpaper-size/pos).
+function _applyQmlBgCenter(zRect, cY) {
+  var de = document.documentElement;
+  function _clr() { window._bgDynLast = null; de.style.removeProperty('--wallpaper-dyn-size'); de.style.removeProperty('--wallpaper-dyn-pos'); }
+  if (de.getAttribute('data-table-fs') !== '1' || cY == null) { _clr(); return; }
+  var cs = getComputedStyle(de);
+  var pos = (cs.getPropertyValue('--wallpaper-pos') || '').trim();
+  if (pos && pos !== 'center' && pos !== 'center bottom') { _clr(); return; }   // seuls align:center / align:bottom
+  var bottomMode = (pos === 'center bottom');
+  var wp = (cs.getPropertyValue('--wallpaper') || '').trim();
+  var m = wp.match(/url\((['"]?)([^'")]+)\1\)/);
+  if (!m) { _clr(); return; }
+  var url = m[2];
+  var zsRaw = (cs.getPropertyValue('--wallpaper-size') || '').trim();
+  var zoom = 1, zm = zsRaw.match(/^([\d.]+)%$/);
+  if (zm) zoom = Math.max(1, parseFloat(zm[1]) / 100);   // TableBackgroundZoom
+  window._bgNatCache = window._bgNatCache || {};
+  var nat = window._bgNatCache[url];
+  if (!nat) {
+    if (!window._bgNatLoading) window._bgNatLoading = {};
+    if (!window._bgNatLoading[url]) {
+      window._bgNatLoading[url] = true;
+      var im = new Image();
+      im.onload = function () {
+        window._bgNatCache[url] = { w: im.naturalWidth || 1, h: im.naturalHeight || 1 };
+        try { if (typeof window._renderSeats === 'function') window._renderSeats(); } catch (e) {}
+      };
+      im.src = url;
+    }
+    return; // taille inconnue pour l'instant : cover existant en attendant
+  }
+  var sg = document.getElementById('s-game');
+  if (!sg) { _clr(); return; }
+  var sgr = sg.getBoundingClientRect();
+  var wide = !(typeof window._tableZonePortrait === 'function' && window._tableZonePortrait());
+  var w, h, fs, x, y;
+  if (wide) {
+    var myz = document.querySelector('.my-zone');
+    var coverExtra = myz ? myz.getBoundingClientRect().height : 0;
+    if (bottomMode) {
+      // align:bottom (non-centerMode QML) : cover simple, centré dans le
+      // cadre tableZone(+actionBar) — pas de zoom, pas de communityCenterY.
+      var boxW = zRect.width, boxH = zRect.height + coverExtra;
+      fs = Math.max(boxW / nat.w, boxH / nat.h);
+      w = Math.round(nat.w * fs); h = Math.round(nat.h * fs);
+      x = Math.round(zRect.left - sgr.left + boxW / 2 - w / 2);
+      y = Math.round(zRect.top - sgr.top + boxH / 2 - h / 2);
+    } else {
+      // Paysage : couvre la bande tableZone (+ derrière l'action bar), centré
+      // sur (milieu zone, communityCenterY). Comportement historique inchangé.
+      var reqH = 2 * Math.max(cY, zRect.height + coverExtra - cY);
+      fs = Math.max(zRect.width / nat.w, reqH / nat.h) * zoom;
+      w = Math.round(nat.w * fs); h = Math.round(nat.h * fs);
+      x = Math.round(zRect.left - sgr.left + zRect.width / 2 - w / 2);
+      y = Math.round(zRect.top - sgr.top + cY - h / 2);
+    }
+  } else if (bottomMode) {
+    // Portrait, align:bottom : même repli PLEIN ÉCRAN que le mode center
+    // ci-dessous (la bande tableZone seule laisse un ruban haut/bas montrant
+    // le fond de repli, cf. note du mode center) — mais cover+CENTRÉ pur,
+    // sans zoom ni offset sur communityCenterY, comme en paysage.
+    fs = Math.max(sgr.width / nat.w, sgr.height / nat.h);
+    w = Math.round(nat.w * fs); h = Math.round(nat.h * fs);
+    x = Math.round(sgr.width / 2 - w / 2);
+    y = Math.round(sgr.height / 2 - h / 2);
+  } else {
+    // Portrait : PreserveAspectCrop PLEIN ÉCRAN (#s-game entier) — comme le
+    // gameBackground QML. La bande tableZone ne couvrait qu'un ruban central
+    // (haut/bas laissaient voir le fond de repli). Centré horizontalement +
+    // sur communityCenterY, × TableBackgroundZoom.
+    var cYsg = (zRect.top - sgr.top) + cY;
+    var reqHfull = 2 * Math.max(cYsg, sgr.height - cYsg);
+    fs = Math.max(sgr.width / nat.w, reqHfull / nat.h) * zoom;
+    w = Math.round(nat.w * fs); h = Math.round(nat.h * fs);
+    x = Math.round(sgr.width / 2 - w / 2);
+    y = Math.round(cYsg - h / 2);
+  }
+  var next = { key: [Math.round(zRect.left - sgr.left), Math.round(zRect.top - sgr.top),
+                     Math.round(zRect.width), Math.round(zRect.height),
+                     Math.round(sgr.width), Math.round(sgr.height), url, zoom, wide ? 'w' : 'p'].join('|'),
+               w: w, h: h, x: x, y: y };
+  if (_bgDynKeep(window._bgDynLast, next) && de.style.getPropertyValue('--wallpaper-dyn-pos')) return;
+  window._bgDynLast = next;
+  de.style.setProperty('--wallpaper-dyn-size', w + 'px ' + h + 'px');
+  de.style.setProperty('--wallpaper-dyn-pos', x + 'px ' + y + 'px');
+}
+
+// ─── Exports ES + alias legacy ───────────────────────────────────────────
+// ── QML communityScale (wide, non-compact, seated) for M opponents, from the
+// seat MODEL — same formula as GamePage.qml (topOpponentBottomY with the 0.13
+// floor, barycentre, /84, cap min(1.8, 2·s, 0.70·w/264), floor 0.72·s).
+// web.80 : seat-render uses it with M = 9 as the « full table » reference, so
+// the board never gets smaller when players leave. Pure (Node-testable).
+function _qmlLandscapeCommScale(M, zW, zH, compact, opts) {
+  if (!(M >= 1) || !(zW > 0) || !(zH > 0)) return null;
+  var lay = _qmlLandscapeLayout(M, zW, zH, !!compact, 1, false, opts);
+  if (!lay || !(lay.s > 0) || !lay.slots || !lay.slots.length) return null;
+  var s = lay.s, top = 0.13 * zH, sum = lay.selfY, n = 1;
+  for (var i = 0; i < lay.slots.length; i++) {
+    var y = lay.slots[i].y;
+    if (y < top) top = y;
+    sum += y; n++;
+  }
+  var topOpp = top + lay.oppBaseH * s / 2;
+  var selfTop = lay.selfY - lay.selfBaseH * s / 2;
+  var cc = sum / n;
+  var avail = Math.min(cc - (topOpp + 26 * s) - 6, selfTop - cc - 6);
+  var gap = avail > 0 ? avail / 84 : 0;
+  var cap = Math.min(1.8, s * 2.0, (0.70 * zW) / 264);
+  return Math.max(0.55, Math.min(cap, Math.max(s * 0.72, gap)));
+}
+if (typeof window !== 'undefined') window._qmlLandscapeCommScale = _qmlLandscapeCommScale;
+
+export { _qmlLandscapeLayout, _qmlPortraitScale, _qmlPortraitLayout, _officialSeatPix, _applyQmlBgCenter, _bgDynKeep, _qmlLandscapeCommScale };
+if (typeof window !== 'undefined') {
+  // _qmlLandscapeLayout / _qmlPortraitScale déjà attachés par le bloc (verbatim).
+  window._officialSeatPix = _officialSeatPix;
+  window._applyQmlBgCenter = _applyQmlBgCenter;
+  window.Layout = { landscape: _qmlLandscapeLayout, portraitScale: _qmlPortraitScale,
+                    seatPix: _officialSeatPix };
+}

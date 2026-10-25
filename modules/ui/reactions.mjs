@@ -1,0 +1,425 @@
+// @ts-check
+// ─────────────────────────────────────────────────────────────────────────
+// public/modules/ui/reactions.mjs
+//
+// Réactions emoji en jeu (90, 3 pages) : compteurs par emoji, dé-duplication d'une même
+// réaction reçue par deux canaux (REACT: legacy + convention /emoji partagée
+// avec le client QML de sp0ck — fenêtre 1,5 s), rendu flottant/siège,
+// presets de particules (playReactionFx), mute (parité DisableEmojiReactions)
+// et épingle du panneau. INTEROP sp0ck : aucun changement de protocole ni de
+// timing dans cette extraction.
+//
+// Historique : extrait de public/pokerth.js (extraction #6 du plan
+// docs/ESM_PLAN.md), au verbatim. Dépendances à runtime via les globaux :
+// window.seats, playTone (gardé par typeof). _reactMuted / _reactPinned sont
+// lus ET écrits en assignation nue par le monolithe (boutons mute/pin) →
+// ponts defineProperty (gabarit _lang d'i18n.mjs, mode sloppy côté monolithe).
+// ─────────────────────────────────────────────────────────────────────────
+
+function t(key, opts) {
+  return (typeof window !== 'undefined' && window.t) ? window.t(key, opts) : key;
+}
+
+// ═══════════════════════════════════════════════════════════
+// RÉACTIONS RAPIDES
+// ═══════════════════════════════════════════════════════════
+var _reactionCounts = {}; // { emoji: count }
+var _reactionTimers = {}; // timers de reset des compteurs
+var _reactSeen = {};      // { 'pid|emoji': {t, via} } -- de-dup d'une reaction recue par 2 canaux (REACT: + /emoji)
+// Mute local des reactions (preference utilisateur, persistee). ON => rien envoye ni recu, grille grisee.
+var _reactMuted = (function(){ try { return localStorage.getItem('pth_react_muted') === '1'; } catch(e){ return false; } })();
+// Épingle du panneau réactions (demande narmod 2026-07-18) : par défaut la
+// fenêtre se FERME après chaque réaction envoyée, comme le ReactionPicker du
+// client QML. Épinglée (📌 or), elle reste ouverte.
+var _reactPinned = (function(){ try { return localStorage.getItem('pth_react_pin') === '1'; } catch(e){ return false; } })();
+function _applyReactPinUI() {
+  var btn = document.getElementById('react-pin-toggle');
+  if (btn) {
+    btn.classList.toggle('pinned', _reactPinned);
+    btn.setAttribute('aria-pressed', _reactPinned ? 'true' : 'false');
+  }
+}
+
+// ── Catalogue canonique des 90 réactions (3 pages × 30 — ordre = rcp-N) ──
+// Doit rester synchronisé avec les grilles de pokerth-client.html ;
+// scripts/test-reactions-catalog.mjs vérifie l'ordre, la couverture FX et
+// la présence des keyframes CSS de chaque animation.
+var REACT_EMOJIS = [
+  // page 1 😀
+  '😂','🤣','😅','😭','🥺','😢','😏','🙄','😳','🤪','😇','😍','🥰','😘','😬','😴','🤔','👀','😮','😱','🤯','😡','😤','🤢','🥴','🙃','🫣','😐','🥱','🙈',
+  // page 2 👏
+  '😎','🤩','🤡','😈','🫠','🥶','🥵','🎉','🥳','🍿','👏','🙌','💪','👍','👎','🤝','👊','🙏','🤞','🫵','🫡','🤫','🤦','🚬','⏳','🍺','☕','💣','🚀','⚡',
+  // page 3 ♠️
+  '💰','🤑','💵','💎','🎰','🍀','🃏','♠️','🎲','🎯','🏆','🥇','💸','🪤','👑','🔥','💀','🦈','🐟','🐔','🫏','🎩','🧊','🌪️','🔫','📈','📉','🔮','💯','⭐'
+];
+
+// ── Catalogue des effets animés par réaction ──
+// a = animation de l'emoji (keyframes rfx* de pokerth.css) ; p = particules
+// (objet, ou preset 'sparkle'/'shock'/'confetti'/'boom'). 15 animations :
+// pop, shake, beat, shine, spin, fire, flex + launch, drop, wobble, flip,
+// zoomout, heartbeat, shiver, tilt (2026-08-28).
+var REACTION_FX = {
+  // ── page 1 😀 ──
+  '😂':{a:'shake',p:{chars:['💧'],count:7,size:13,a0:-30,a1:210,dist:55,g:36,life:850}},
+  '🤣':{a:'shake',p:{chars:['💧'],count:7,size:13,a0:-30,a1:210,dist:55,g:36,life:850}},
+  '😅':{a:'shake',p:{chars:['💧'],count:5,size:12,a0:-40,a1:220,dist:48,g:40,life:800}},
+  '😭':{a:'shake',p:{chars:['💧'],count:11,size:14,a0:-20,a1:200,dist:60,g:70,life:1000}},
+  '🥺':{a:'heartbeat',p:{chars:['✨','💖'],count:8,size:13,a0:0,a1:360,dist:56,life:850}},
+  '😢':{a:'wobble',p:{chars:['💧'],count:6,size:13,a0:-30,a1:210,dist:50,g:55,life:900}},
+  '😏':{a:'pop',p:'sparkle'},
+  '🙄':{a:'tilt',p:{chars:['✦'],count:5,size:11,a0:0,a1:360,dist:44,life:650}},
+  '😳':{a:'zoomout',p:'sparkle'},
+  '🤪':{a:'wobble',p:{chars:['✦','✧'],count:8,size:12,a0:0,a1:360,dist:58,life:800,rot:1}},
+  '😇':{a:'shine',p:{chars:['✨'],count:8,color:'var(--gold)',size:13,a0:-160,a1:-20,dist:58,g:-26,life:900}},
+  '😍':{a:'heartbeat',p:{chars:['❤️','💖'],count:8,size:16,a0:-160,a1:-20,dist:64,g:-30,life:1100}},
+  '🥰':{a:'heartbeat',p:{chars:['💕','💖'],count:9,size:15,a0:-170,a1:-10,dist:62,g:-28,life:1050}},
+  '😘':{a:'heartbeat',p:{chars:['💋','❤️'],count:7,size:15,a0:-150,a1:-30,dist:60,g:-32,life:1000}},
+  '😬':{a:'shiver',p:{chars:['💦'],count:4,size:11,a0:-120,a1:-60,dist:40,g:44,life:700}},
+  '😴':{a:'drop',p:{chars:['💤'],count:5,size:14,a0:-120,a1:-60,dist:52,g:-40,life:1100}},
+  '🤔':{a:'wobble',p:{chars:['✦'],count:5,size:11,a0:0,a1:360,dist:42,life:650}},
+  '👀':{a:'zoomout',p:'sparkle'},
+  '😮':{a:'zoomout',p:{chars:['✦'],count:6,size:12,a0:0,a1:360,dist:50,life:700}},
+  '😱':{a:'shake',p:{chars:['💦'],count:6,size:12,a0:-120,a1:-60,dist:48,g:50,life:780}},
+  '🤯':{a:'tilt',p:'shock'},
+  '😡':{a:'shiver',p:{chars:['💢','🔥'],count:7,size:13,a0:0,a1:360,dist:54,life:800}},
+  '😤':{a:'flex',p:{chars:['💨'],count:6,size:14,a0:-190,a1:10,dist:52,life:750}},
+  '🤢':{a:'wobble',p:{count:8,color:'#7ee37e',size:7,a0:0,a1:360,dist:50,life:750}},
+  '🥴':{a:'wobble',p:{chars:['🌀','✦'],count:6,size:12,a0:0,a1:360,dist:52,life:850,rot:1}},
+  '🙃':{a:'flip',p:'sparkle'},
+  '🫣':{a:'pop',p:{chars:['✦'],count:5,size:11,a0:0,a1:360,dist:44,life:650}},
+  '😐':{a:'pop',p:{chars:['✦'],count:3,size:10,a0:0,a1:360,dist:36,life:600}},
+  '🥱':{a:'wobble',p:{chars:['💤'],count:5,size:14,a0:-130,a1:-50,dist:52,g:-42,life:1100}},
+  '🙈':{a:'shake',p:{chars:['✦'],count:6,size:11,a0:0,a1:360,dist:48,life:700}},
+  // ── page 2 👏 ──
+  '😎':{a:'pop',p:'sparkle'},
+  '🤩':{a:'shine',p:{chars:['✨'],count:8,size:13,a0:0,a1:360,dist:60,life:800,rot:1}},
+  '🤡':{a:'wobble',p:'confetti'},
+  '😈':{a:'tilt',p:{chars:['🔥','✦'],count:8,size:13,a0:0,a1:360,dist:58,life:850,rot:1}},
+  '🫠':{a:'wobble',p:{chars:['💧'],count:6,size:12,a0:40,a1:140,dist:44,g:70,life:950}},
+  '🥶':{a:'shiver',p:{chars:['❄️','🧊'],count:8,size:13,a0:0,a1:360,dist:56,life:900,rot:1}},
+  '🥵':{a:'fire',p:{chars:['🔥','💦'],count:8,size:13,a0:-160,a1:-20,dist:60,g:-20,life:900}},
+  '🎉':{a:'pop',p:'confetti'},
+  '🥳':{a:'pop',p:'confetti'},
+  '🍿':{a:'beat',p:{chars:['🍿'],count:9,size:13,a0:-160,a1:-20,dist:60,g:70,life:1000,rot:1}},
+  '👏':{a:'beat',p:{chars:['✦','✧'],count:9,color:'var(--gold)',size:13,a0:0,a1:360,dist:60,life:750}},
+  '🙌':{a:'beat',p:{chars:['✦','✧'],count:9,color:'var(--gold)',size:13,a0:0,a1:360,dist:62,life:780}},
+  '💪':{a:'flex',p:{chars:['✦'],count:6,color:'var(--gold)',size:13,a0:0,a1:360,dist:50,life:700}},
+  '👍':{a:'beat',p:'sparkle'},
+  '👎':{a:'drop',p:{count:7,color:'#9aa0a6',size:6,a0:20,a1:160,dist:48,g:60,life:800}},
+  '🤝':{a:'pop',p:'sparkle'},
+  '👊':{a:'flex',p:'shock'},
+  '🙏':{a:'shine',p:{chars:['✨'],count:9,color:'var(--gold)',size:13,a0:-160,a1:-20,dist:60,g:-24,life:950}},
+  '🤞':{a:'beat',p:{chars:['🍀','✨'],count:8,size:13,a0:0,a1:360,dist:58,life:850,rot:1}},
+  '🫵':{a:'zoomout',p:'sparkle'},
+  '🫡':{a:'pop',p:'sparkle'},
+  '🤫':{a:'pop',p:{chars:['✦'],count:4,size:10,a0:0,a1:360,dist:38,life:600}},
+  '🤦':{a:'drop',p:{chars:['💧'],count:4,size:12,a0:-120,a1:-60,dist:42,g:46,life:700}},
+  '🚬':{a:'wobble',p:{chars:['💨'],count:7,size:14,a0:-130,a1:-50,dist:64,g:-46,life:1400,rot:1}},
+  '⏳':{a:'flip',p:{chars:['✦'],count:6,size:11,a0:0,a1:360,dist:48,life:700}},
+  '🍺':{a:'wobble',p:{chars:['🫧'],count:9,size:12,a0:-140,a1:-40,dist:58,g:-50,life:1100}},
+  '☕':{a:'pop',p:{chars:['💨'],count:5,size:13,a0:-120,a1:-60,dist:50,g:-40,life:1000}},
+  '💣':{a:'drop',p:'boom'},
+  '🚀':{a:'launch',p:{chars:['🔥','✨'],count:10,size:13,a0:60,a1:120,dist:80,g:60,life:900}},
+  '⚡':{a:'zoomout',p:{chars:['⚡','✦'],count:8,size:14,a0:0,a1:360,dist:66,life:750,rot:1}},
+  // ── page 3 ♠️ ──
+  '💰':{a:'pop',p:{chars:['🪙','💵','✦'],count:12,size:16,a0:-170,a1:-10,dist:72,g:90,life:1200,rot:1}},
+  '🤑':{a:'pop',p:{chars:['🪙','💵'],count:10,size:16,a0:-170,a1:-10,dist:70,g:90,life:1100,rot:1}},
+  '💵':{a:'drop',p:{chars:['💵','🪙'],count:10,size:15,a0:-170,a1:-10,dist:70,g:85,life:1150,rot:1}},
+  '💎':{a:'shine',p:{chars:['✨','✦'],count:9,size:13,a0:0,a1:360,dist:64,life:850,rot:1}},
+  '🎰':{a:'spin',p:{chars:['✨','🪙'],count:9,size:14,a0:0,a1:360,dist:66,life:950,rot:1}},
+  '🍀':{a:'spin',p:{chars:['✨','🍀'],count:8,color:'#7ee37e',size:13,a0:0,a1:360,dist:62,life:950,rot:1}},
+  '🃏':{a:'flip',p:'sparkle'},
+  '♠️':{a:'flip',p:{chars:['♠️','♥️','♦️','♣️'],count:8,size:14,a0:0,a1:360,dist:62,life:900,rot:1}},
+  '🎲':{a:'spin',p:{chars:['✦','✧'],count:8,size:12,a0:0,a1:360,dist:58,life:800,rot:1}},
+  '🎯':{a:'zoomout',p:'sparkle'},
+  '🏆':{a:'shine',p:{chars:['⭐','✨'],count:10,color:'var(--gold)',size:14,a0:0,a1:360,dist:68,life:1000,rot:1}},
+  '🥇':{a:'shine',p:{chars:['✨'],count:8,color:'var(--gold)',size:13,a0:0,a1:360,dist:60,life:900}},
+  '💸':{a:'launch',p:{chars:['💵','🪙'],count:10,size:14,a0:-150,a1:-30,dist:75,g:-40,life:1100,rot:1}},
+  '🪤':{a:'drop',p:'shock'},
+  '👑':{a:'shine',p:{chars:['✨','⭐'],count:10,color:'var(--gold)',size:14,a0:0,a1:360,dist:70,life:1000,rot:1}},
+  '🔥':{a:'fire',p:{chars:['🔥','✦'],count:9,size:14,a0:-150,a1:-30,dist:70,g:-24,life:1000,rot:1}},
+  '💀':{a:'shiver',p:{count:8,color:'#9aa0a6',size:6,a0:0,a1:360,dist:52,life:800}},
+  '🦈':{a:'pop',p:{chars:['💦','🌊'],count:8,size:14,a0:-170,a1:-10,dist:62,g:40,life:900}},
+  '🐟':{a:'wobble',p:{chars:['🫧'],count:9,size:12,a0:-140,a1:-40,dist:58,g:-52,life:1150}},
+  '🐔':{a:'shake',p:{chars:['🪶'],count:8,size:14,a0:-30,a1:210,dist:56,g:60,life:1200,rot:1}},
+  '🫏':{a:'wobble',p:{chars:['✦'],count:6,size:11,a0:0,a1:360,dist:48,life:750}},
+  '🎩':{a:'flip',p:{chars:['✨'],count:7,size:12,a0:0,a1:360,dist:54,life:800}},
+  '🧊':{a:'shiver',p:{chars:['❄️'],count:7,size:12,a0:0,a1:360,dist:52,life:850}},
+  '🌪️':{a:'tilt',p:{chars:['🍃','💨'],count:10,size:13,a0:0,a1:360,dist:74,life:950,rot:1}},
+  '🔫':{a:'recoil',p:'gunshot'},
+  '📈':{a:'launch',p:{count:8,color:'#7ee37e',size:6,a0:-120,a1:-60,dist:62,g:-30,life:850}},
+  '📉':{a:'drop',p:{count:8,color:'#e05252',size:6,a0:60,a1:120,dist:58,g:70,life:850}},
+  '🔮':{a:'shine',p:{chars:['✨','✦'],count:8,size:13,a0:0,a1:360,dist:60,life:900,rot:1}},
+  '💯':{a:'zoomout',p:{chars:['✦','💯'],count:6,size:13,a0:0,a1:360,dist:56,life:800}},
+  '⭐':{a:'shine',p:{chars:['⭐','✨'],count:9,size:13,a0:0,a1:360,dist:62,life:900,rot:1}}
+};
+function _rfxDefault(){ return { a:'pop', p:'sparkle' }; }
+
+// Facteur de durée des chorégraphies — parité upstream b8a1d18
+// (ReactionCatalog.qml durationScale, reactionfx.cpp kDurationScale) : les
+// keyframes de base (1,4–1,7 s) sont étirées ×1,25 dans pokerth.css (pop
+// 1,6 s → 2 s, la durée de vol de 2.1.7), ainsi que les délais qui leur sont
+// alignés. Particules et anneaux gardent leur durée.
+var RFX_DURATION_SCALE = 1.25;
+// Durée de vie du conteneur : chorégraphie la plus longue (1,7 s × 1,25 =
+// 2125 ms) + 100 ms de marge, comme l'ancien 1800 ms pour 1,7 s.
+var RFX_LIFE_MS = Math.round(1700 * RFX_DURATION_SCALE) + 100;
+
+// Génère les particules d'un effet dans le conteneur c (centré sur 0,0 du conteneur)
+function _rfxSpawn(c, spec){
+  if (spec === 'sparkle') spec = {chars:['✦','✧'],count:7,color:'var(--gold)',size:12,a0:0,a1:360,dist:54,life:700};
+  if (spec === 'confetti'){ _rfxConfetti(c); return; }
+  if (spec === 'boom'){
+    // 💣 (demande Kai 2026-08-28) : la bombe tombe (anim 'drop'), PUIS explose
+    // à l'atterrissage — double onde de choc orange + gerbe 💥🔥✦. Délais
+    // alignés sur la chorégraphie, donc étirés avec elle (upstream b8a1d18,
+    // scaled()) : impact 420→525 ms, 2e onde 540→675 ms (+150 ms).
+    setTimeout(function(){
+      if (!c.parentNode) return;
+      var r1 = document.createElement('div'); r1.className = 'rfx-ring rfx-ring-boom'; c.appendChild(r1);
+      var r2 = document.createElement('div'); r2.className = 'rfx-ring rfx-ring-boom'; r2.style.animationDelay = Math.round(120 * RFX_DURATION_SCALE) + 'ms'; c.appendChild(r2);
+      setTimeout(function(){ r1.remove(); r2.remove(); }, 1150);
+      _rfxSpawn(c, {chars:['💥','🔥','✦'],count:14,size:18,a0:0,a1:360,dist:95,life:950,rot:1});
+    }, Math.round(420 * RFX_DURATION_SCALE));
+    return;
+  }
+  if (spec === 'gunshot'){
+    // 🔫 : éclair de bouche, balle traçante filant à GAUCHE (le glyphe pointe
+    // à gauche sur Apple/Google/Twemoji), traînée d'étincelles, douille
+    // éjectée en cloche vers la droite. L'emoji lui-même joue l'anim 'recoil'.
+    var fl = document.createElement('span'); fl.className = 'rfx-pt';
+    fl.textContent = '💥'; fl.style.fontSize = '20px';
+    c.appendChild(fl);
+    fl.animate([
+      {transform:'translate(calc(-50% - 20px), -50%) scale(.4)', opacity:0, offset:0},
+      {transform:'translate(calc(-50% - 26px), -50%) scale(1.25)', opacity:1, offset:.35},
+      {transform:'translate(calc(-50% - 30px), -50%) scale(.7)', opacity:0, offset:1}
+    ], {duration:240, easing:'ease-out'});
+    setTimeout(function(){ fl.remove(); }, 300);
+    var b = document.createElement('span'); b.className = 'rfx-pt';
+    b.style.width = '7px'; b.style.height = '7px';
+    b.style.background = 'var(--gold)'; b.style.borderRadius = '50%';
+    c.appendChild(b);
+    b.animate([
+      {transform:'translate(calc(-50% - 24px), -50%)', opacity:1, offset:0},
+      {transform:'translate(calc(-50% - 170px), calc(-50% + 6px))', opacity:1, offset:.8},
+      {transform:'translate(calc(-50% - 195px), calc(-50% + 10px))', opacity:0, offset:1}
+    ], {duration:420, easing:'cubic-bezier(.1,.8,.3,1)'});
+    setTimeout(function(){ b.remove(); }, 480);
+    _rfxSpawn(c, {chars:['✦'], count:5, size:9, a0:172, a1:188, dist:120, life:420});
+    _rfxSpawn(c, {chars:['✨'], count:2, size:10, a0:-110, a1:-60, dist:40, g:55, life:650});
+    return;
+  }
+  if (spec === 'shock'){
+    var r = document.createElement('div'); r.className = 'rfx-ring';
+    c.appendChild(r); setTimeout(function(){ r.remove(); }, 800);
+    spec = {chars:['💥','✦'],count:8,size:15,a0:0,a1:360,dist:70,life:800};
+  }
+  if (!spec || typeof spec !== 'object') return;
+  for (var i = 0; i < spec.count; i++){
+    var p = document.createElement('span'); p.className = 'rfx-pt';
+    if (spec.chars){ p.textContent = spec.chars[(Math.random()*spec.chars.length)|0]; p.style.fontSize = (spec.size||14)+'px'; }
+    else { p.style.width = p.style.height = (spec.size||7)+'px'; p.style.background = spec.color||'var(--gold)'; p.style.borderRadius = spec.square?'1px':'50%'; }
+    c.appendChild(p);
+    var ang = (spec.a0 + Math.random()*(spec.a1 - spec.a0)) * Math.PI/180;
+    var d = spec.dist * (0.55 + Math.random()*0.6);
+    var dx = Math.cos(ang)*d, dy = Math.sin(ang)*d, g = spec.g||0;
+    var rot = spec.rot ? (Math.random()*720 - 360) : 0, life = spec.life||1000;
+    p.animate([
+      {transform:'translate(-50%,-50%)', opacity:1, offset:0},
+      {transform:'translate(calc(-50% + '+dx+'px), calc(-50% + '+dy+'px)) rotate('+rot+'deg)', opacity:1, offset:.65},
+      {transform:'translate(calc(-50% + '+dx+'px), calc(-50% + '+(dy+g)+'px)) rotate('+rot+'deg)', opacity:0, offset:1}
+    ], {duration: life, easing:'cubic-bezier(.15,.7,.4,1)'});
+    (function(el){ setTimeout(function(){ el.remove(); }, life + 60); })(p);
+  }
+}
+function _rfxConfetti(c){
+  var cols = ['#9b59b6','#e84393','#27ae60','#c0392b','#7ec8e3','#e67e22','#ffffff'];
+  for (var i = 0; i < 24; i++){
+    var p = document.createElement('span'); p.className = 'rfx-pt';
+    p.style.width = (5 + Math.random()*4)+'px'; p.style.height = (7 + Math.random()*4)+'px';
+    p.style.background = cols[(Math.random()*cols.length)|0]; p.style.borderRadius = '1px';
+    c.appendChild(p);
+    var ang = (-170 + Math.random()*160) * Math.PI/180, d = 70 + Math.random()*60;
+    var dx = Math.cos(ang)*d, dy = Math.sin(ang)*d, rot = Math.random()*720 - 360, life = 1300 + Math.random()*400;
+    p.animate([
+      {transform:'translate(-50%,-50%)', opacity:1, offset:0},
+      {transform:'translate(calc(-50% + '+dx+'px), calc(-50% + '+dy+'px)) rotate('+rot+'deg)', opacity:1, offset:.5},
+      {transform:'translate(calc(-50% + '+(dx*1.1)+'px), calc(-50% + '+(dy+130)+'px)) rotate('+(rot+120)+'deg)', opacity:0, offset:1}
+    ], {duration: life, easing:'cubic-bezier(.2,.6,.4,1)'});
+    (function(el){ setTimeout(function(){ el.remove(); }, life + 80); })(p);
+  }
+}
+
+// Joue la chorégraphie animée d'une réaction à la position (x,y) — le siège du joueur
+function playReactionFx(emoji, x, y){
+  var reduce = false;
+  try { reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){}
+  var fx = REACTION_FX[emoji] || _rfxDefault();
+  var c = document.createElement('div'); c.className = 'rfx';
+  c.style.left = (x || window.innerWidth * 0.5) + 'px';
+  c.style.top  = (y || window.innerHeight * 0.7) + 'px';
+  document.body.appendChild(c);
+  var big = document.createElement('span');
+  big.className = 'rfx-big rfx-anim-' + (reduce ? 'pop' : fx.a);
+  big.textContent = emoji;
+  c.appendChild(big);
+  if (!reduce) _rfxSpawn(c, fx.p);
+  setTimeout(function(){ if (c.parentNode) c.remove(); }, RFX_LIFE_MS);
+}
+
+// Affiche la réaction animée (chorégraphie) à la position fournie (siège du joueur).
+// Conserve la signature historique : appelée par showSeatReaction avec les coords du siège.
+function showFloatingReaction(emoji, fromX, fromY) {
+  playReactionFx(emoji, fromX, fromY);
+}
+
+// Affiche la réaction sur l'avatar du joueur dans les sièges
+function showSeatReaction(pid, emoji) {
+  var seatEls = document.querySelectorAll('.seat');
+  if (!window.seats) return;
+  var myIdx = seats.indexOf(myId);
+  var rotated = myIdx >= 0
+    ? seats.slice(myIdx).concat(seats.slice(0, myIdx))
+    : seats;
+  var idx = rotated.indexOf(pid);
+  if (idx < 0 || !seatEls[idx]) return;
+  var existing = seatEls[idx].querySelector('.seat-reaction');
+  if (existing) existing.remove();
+  var badge = document.createElement('div');
+  badge.className = 'seat-reaction';
+  badge.textContent = emoji;
+  seatEls[idx].style.overflow = 'visible';
+  seatEls[idx].appendChild(badge);
+  setTimeout(function(){ if (badge.parentNode) badge.remove(); }, 2700);
+  // Position pour l'animation flottante
+  var sr = seatEls[idx].getBoundingClientRect();
+  showFloatingReaction(emoji, sr.left + sr.width/2, sr.top);
+}
+
+// Réaction d'un expéditeur NON assis (spectateur) : animation au centre de la
+// table, un peu au-dessus des cartes communes — parité QML §10
+// (communityCenterY − 40). Pas de badge de siège, faute de siège. Le plancher
+// vertical évite que le grand emoji et ses particules soient coupés en haut
+// (le QML impose un départ ≥ 205 px du haut pour la même raison).
+function showTableCenterReaction(emoji) {
+  var x = null, y = null;
+  try {
+    var el = document.getElementById('g-comm') || document.getElementById('g-table-zone');
+    if (el) {
+      var r = el.getBoundingClientRect();
+      if (r.width || r.height) { x = r.left + r.width / 2; y = r.top + r.height / 2 - 40; }
+    }
+  } catch (e) {}
+  if (x == null) { x = window.innerWidth * 0.5; y = window.innerHeight * 0.45; }
+  showFloatingReaction(emoji, x, Math.max(y, 96));
+}
+
+// Mettre à jour les compteurs affichés sur les boutons
+function updateReactionCount(emoji) {
+  var EMOJIS = REACT_EMOJIS;
+  var idx = EMOJIS.indexOf(emoji);
+  if (idx < 0) return;
+  var count = _reactionCounts[emoji] || 0;
+  // Mettre à jour dans le panneau principal (rcp-N)
+  var el = document.getElementById('rcp-' + idx);
+  if (el) el.textContent = count > 0 ? count : '';
+  // Ancien panneau chat (rc-N) si encore présent
+  var el2 = document.getElementById('rc-' + idx);
+  if (el) el.textContent = count > 0 ? count : '';
+  // Reset après 6 secondes d'inactivité
+  clearTimeout(_reactionTimers[emoji]);
+  _reactionTimers[emoji] = setTimeout(function() {
+    _reactionCounts[emoji] = 0;
+    if (el) el.textContent = '';
+  }, 6000);
+}
+
+// Recevoir une réaction d'un autre joueur (via chat).
+// IMPORTANT: the proxy broadcasts REACT:pid:emoji messages to EVERY
+// connected client, regardless of which table they sit at. Until we
+// route reactions through the actual PokerTH game-chat (which is
+// table-scoped), we filter here client-side: if the sender is not at
+// our table, ignore the reaction completely — no counter increment,
+// no seat badge, no sound. Without this filter, reactions from another
+// table would silently bump our counters and play the `playTone` chime,
+// which is what the user reported hearing.
+function handleIncomingReaction(pid, emoji, via) {
+  if (_reactMuted) return;                       // reactions coupees localement : aucun rendu, badge ni son
+  // Joueur ignoré → ses réactions aussi (demande forum 2026-08-08) : même
+  // filtre par nom que le chat (addChat/addGameChat). Les DEUX canaux
+  // ('chat' /emoji et 'react' REACT:) passent ici, une seule garde suffit.
+  // 'self' exclu : on ne peut pas s'ignorer soi-même. Le QML ne filtre pas
+  // (encore) — extension additive de l'Ignore, à proposer upstream.
+  try {
+    if (via !== 'self' && typeof window._isIgnored === 'function') {
+      var _inm = (window.players && window.players[pid]) || null;
+      if (_inm && window._isIgnored(_inm)) return;   // ni compteur, ni badge, ni son
+    }
+  } catch (_ie) {}
+  via = via || 'react';
+  // Expéditeur assis ? Sinon c'est un SPECTATEUR de notre table : parité QML
+  // §10 — la réaction s'anime au centre de la table au lieu d'un siège
+  // (demande sp0ck 24/07/2026 : le spectateur n'a plus le chat, mais garde
+  // les réactions). Réservé aux canaux table-scopés :
+  //   · 'chat' = /emoji, routé par le serveur PokerTH sur la table courante ;
+  //   · 'self' = ma propre réaction (je peux moi-même être spectateur).
+  // Le canal 'react' (trame REACT: du proxy) est diffusé à TOUS les clients
+  // connectés, toutes tables confondues : sans siège on ne peut pas savoir
+  // s'il vient de notre table → on l'ignore, exactement comme avant.
+  if (!window.seats) return;                     // pas (encore) à une table : rien à animer
+  var _seated = seats.indexOf(pid) >= 0;
+  if (!_seated && via !== 'chat' && via !== 'self') return;
+  var _k = pid + '|' + emoji, _now = Date.now(), _p = _reactSeen[_k];
+  if (_p && _p.via !== via && _now - _p.t < 1500) { _reactSeen[_k] = { t: _now, via: via }; return; }
+  _reactSeen[_k] = { t: _now, via: via };
+  _reactionCounts[emoji] = (_reactionCounts[emoji] || 0) + 1;
+  updateReactionCount(emoji);
+  if (_seated) showSeatReaction(pid, emoji);
+  else showTableCenterReaction(emoji);
+  // Notif sonore légère
+  if (typeof playTone === 'function') playTone(800, 0.05, 0.08);
+}
+
+// Reflete l'etat "couper les reactions" : bouton barre + grille grisee/inerte.
+function _applyReactMuteUI() {
+  var grids = document.querySelectorAll('#g-reaction-panel .react-grid');
+  for (var gi = 0; gi < grids.length; gi++) grids[gi].classList.toggle('react-muted', _reactMuted);
+  var btn = document.getElementById('react-mute-toggle');
+  if (btn) {
+    btn.classList.toggle('muted', _reactMuted);
+    btn.setAttribute('aria-pressed', _reactMuted ? 'true' : 'false');
+  }
+  // Bouton emoji sur le tapis : grisé quand les réactions sont coupées.
+  var tbtn = document.getElementById('react-toggle-btn');
+  if (tbtn) tbtn.classList.toggle('muted', _reactMuted);
+}
+// Options avancees : couper/retablir les reactions emoji (parite DisableEmojiReactions).
+// Meme preference que le bouton « muet » du panneau de reactions (pth_react_muted).
+function setReactMuted(on) {
+  _reactMuted = !!on;
+  try { localStorage.setItem('pth_react_muted', _reactMuted ? '1' : '0'); } catch (e) {}
+  _applyReactMuteUI();
+}
+window.setReactMuted = setReactMuted;
+
+// ─── Exports ES + alias legacy ───────────────────────────────────────────
+export { handleIncomingReaction, setReactMuted, playReactionFx, showFloatingReaction, REACT_EMOJIS, REACTION_FX, RFX_DURATION_SCALE, RFX_LIFE_MS };
+if (typeof window !== 'undefined') {
+  // setReactMuted est déjà attaché par le bloc lui-même (verbatim).
+  window.handleIncomingReaction = handleIncomingReaction;
+  window._applyReactMuteUI = _applyReactMuteUI;
+  window._applyReactPinUI = _applyReactPinUI;
+  Object.defineProperty(window, '_reactMuted', {
+    configurable: true,
+    get() { return _reactMuted; },
+    set(v) { _reactMuted = v; },
+  });
+  Object.defineProperty(window, '_reactPinned', {
+    configurable: true,
+    get() { return _reactPinned; },
+    set(v) { _reactPinned = v; },
+  });
+  window.REACT_EMOJIS = REACT_EMOJIS;
+  window.Reactions = { handleIncomingReaction, setReactMuted, playReactionFx, EMOJIS: REACT_EMOJIS };
+}

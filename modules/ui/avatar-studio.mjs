@@ -1,0 +1,512 @@
+// Avatar studio — tabbed avatar window (Gallery / Create / Import).
+//
+// Gallery: untouched legacy emoji grid. Import: explicit photo import
+// (drop zone + button), reusing _processAvatarFile() from the page head.
+// Create: VECTOR portrait generator (style validated with narmod
+// 2026-07-31) — layered SVG portraits rendered by modules/ui/avatar-vector.mjs,
+// replacing the earlier pre-generated photo matrix. Option chips are visual
+// (mini portrait previews / color swatches), so only axis labels need i18n.
+//
+// Applying a portrait rasterizes the SVG on a 96x96 canvas and goes through
+// the SAME path as a photo import (JPEG dataURL -> pth_avatar_img +
+// '__img__'), so seats, proxy broadcast and the PokerTH upload pipeline all
+// work unchanged. The recipe is persisted in pth_avatar_vec for re-editing.
+//
+// Advanced option 'avatar_create' (default ON) hides the Create tab via
+// body.adv-no-avcreate (see applyAdvOpts in pokerth.js).
+//
+// « From a photo » (BETA, narmod 2026-09-27): the player frames their face
+// in a template (front camera, or a photo they pan / zoom —
+// modules/ui/avatar-capture.mjs), the square under the template is
+// analysed IN THE BROWSER by modules/ui/avatar-photo.mjs (no library, no
+// upload, nothing stored) and the estimated axes are merged into the
+// recipe as a starting point.
+
+'use strict';
+
+import { AV_AXES, AV_PRESETS, AV_DEFAULT, avSvg, avPartSvg, avSwatch, avNormalize, avRandom, avVisible, avSanitize, avLocked, avPresetLocked, avSexIcon } from './avatar-vector.mjs';
+import { avPhotoRecipe } from './avatar-photo.mjs';
+import { avCaptureOpen } from './avatar-capture.mjs';
+
+// Axis groups shown as chip tabs (gallery-category pattern): only the
+// active group's rows are rendered, keeping the pane short and tidy.
+const AV_GROUPS = [
+  // Starter characters (2.1.9-web.210): a gallery of archetypes to load and then customise
+  { icon: '\uD83C\uDFAD', label: 'avmGrpPresets', axes: [], presets: true },
+  { icon: '\uD83D\uDC65', label: 'avmGrpBody',  axes: ['sex', 'face'] },
+  { icon: '\uD83D\uDC64', label: 'avmGrpFace',  axes: ['skin', 'marks', 'eyes', 'eyec', 'brows', 'nose', 'mouth', 'expression'] },
+  { icon: '\uD83D\uDC87', label: 'avmGrpHair',  axes: ['hair', 'hairc', 'beard'] },
+  { icon: '\uD83D\uDC54', label: 'avmGrpStyle', axes: ['outfit', 'outfitc', 'bg'] },
+  { icon: '\u2728',        label: 'avmGrpExtra', axes: ['glasses', 'hat', 'shoulder', 'ears', 'badge'] }
+];
+var _avmGroup = 0;
+
+function t(k, p) { return (typeof window.t === 'function') ? window.t(k, p) : k; }
+
+var _avmState = avNormalize(null);
+try {
+  var _saved = JSON.parse(localStorage.getItem('pth_avatar_vec') || 'null');
+  if (_saved) _avmState = avNormalize(_saved);
+} catch (e) {}
+
+function _avmPersist() {
+  try { localStorage.setItem('pth_avatar_vec', JSON.stringify(_avmState)); } catch (e) {}
+}
+
+// Reset the pane scroll when the step changes, otherwise the new
+// category's first rows start hidden under the sticky header.
+function _avmScrollTop() {
+  var pane = document.getElementById('avp-pane-create');
+  if (pane) pane.scrollTop = 0;
+}
+
+// After a silhouette switch, any option filtered out for the new sex is
+// replaced (same slot for the face shapes, else the first visible one),
+// keeping the recipe coherent — see avSanitize in the engine.
+function _avmSanitize() { avSanitize(_avmState); }
+_avmSanitize();
+
+// ── Tab switching ────────────────────────────────────────────────────────
+function avStudioTab(tab) {
+  if (tab === 'create' && document.body.classList.contains('adv-no-avcreate')) tab = 'gallery';
+  ['gallery', 'create', 'import'].forEach(function (p) {
+    var pane = document.getElementById('avp-pane-' + p);
+    var btn  = document.getElementById('avp-tab-' + p);
+    if (pane) pane.style.display = (p === tab) ? '' : 'none';
+    if (btn) btn.classList.toggle('selected', p === tab);
+    if (btn) btn.setAttribute('aria-selected', p === tab ? 'true' : 'false');
+  });
+  if (tab === 'create') _avmRender();
+  if (tab === 'import') _avImportRender();
+}
+
+// Called when the popup opens (from toggleAvatarPopup).
+function avStudioReset() { avStudioTab('gallery'); }
+
+// ── Create pane (vector generator) ───────────────────────────────────────
+function _avmRender() {
+  var pane = document.getElementById('avp-pane-create');
+  if (!pane) return;
+  if (!pane.firstChild) {
+    pane.innerHTML =
+      '<div class="avm-sticky">' +
+      '<div class="avm-head">' +
+      '<div class="avm-preview-wrap">' +
+      '<div class="avm-preview" id="avm-preview"></div>' +
+      '<button type="button" class="avm-more" id="avm-more" aria-haspopup="menu" aria-expanded="false">\u22EF</button>' +
+      '<div class="avm-menu" id="avm-menu" role="menu" hidden>' +
+      '<button type="button" role="menuitem" data-act="save">\uD83D\uDCBE <span></span></button>' +
+      '<button type="button" role="menuitem" data-act="share">\uD83D\uDCE4 <span></span></button>' +
+      '<button type="button" role="menuitem" data-act="copy">\uD83D\uDCCB <span></span></button>' +
+      '</div>' +
+      '</div>' +
+      '<div class="avm-head-btns">' +
+      '<button type="button" class="avm-btn" id="avm-dice">\uD83C\uDFB2 <span></span></button>' +
+      '<button type="button" class="avm-btn" id="avm-reset">\u21ba</button>' +
+      '<button type="button" class="avm-btn" id="avm-photo">\uD83D\uDCF7 <span></span> <sup class="avm-beta"></sup></button>' +
+      '<input type="file" id="avm-photo-input" accept="image/*" style="display:none">' +
+      '<button type="button" class="avm-btn avm-use" id="avm-use"></button>' +
+      '</div>' +
+      '</div>' +
+      '<div class="avm-step">' +
+      '<button type="button" class="avm-step-arr" id="avm-step-prev" aria-label="\u2039">\u2039</button>' +
+      '<div class="avm-step-mid" id="avm-step-label"></div>' +
+      '<button type="button" class="avm-step-arr" id="avm-step-next" aria-label="\u203a">\u203a</button>' +
+      '</div>' +
+      '</div>' +
+      '<div class="avm-rows" id="avm-rows"></div>';
+    document.getElementById('avm-step-prev').addEventListener('click', function () {
+      _avmGroup = (_avmGroup + AV_GROUPS.length - 1) % AV_GROUPS.length; _avmRender(); _avmScrollTop();
+    });
+    document.getElementById('avm-step-next').addEventListener('click', function () {
+      _avmGroup = (_avmGroup + 1) % AV_GROUPS.length; _avmRender(); _avmScrollTop();
+    });
+    document.getElementById('avm-dice').addEventListener('click', function () {
+      _avmState = avRandom(_avmState.sex); _avmPersist(); _avmRender();
+    });
+    document.getElementById('avm-reset').addEventListener('click', function () {
+      _avmState = avNormalize(AV_DEFAULT); _avmSanitize(); _avmPersist(); _avmRender();
+    });
+    document.getElementById('avm-use').addEventListener('click', _avmApply);
+    _avmMenuWire();
+    document.getElementById('avm-photo').addEventListener('click', function () {
+      avCaptureOpen({ mode: 'camera', sex: _avmState.sex, onResult: _avmFromCapture });
+    });
+    // hidden input kept for drag-and-drop / tests: a dropped file opens the
+    // framing panel in photo mode
+    document.getElementById('avm-photo-input').addEventListener('change', function () {
+      var f = this.files && this.files[0];
+      if (f) _avmFromPhoto(f);
+    });
+  }
+  document.querySelector('#avm-photo span').textContent = t('avmFromPhoto');
+  document.querySelector('#avm-photo sup').textContent = t('avmBeta');
+  document.querySelector('#avm-dice span').textContent = t('avmRandom');
+  var _rst = document.getElementById('avm-reset');
+  _rst.title = t('avmReset');
+  _rst.setAttribute('aria-label', t('avmReset'));
+  document.getElementById('avm-use').textContent = t('avmUse');
+  _avmMenuLabels();
+
+  document.getElementById('avm-preview').innerHTML = avSvg(_avmState, 120);
+
+  // Step header: one category at a time, with a position counter
+  // (game-style character creation wizard, narmod 2026-07-31).
+  var g = AV_GROUPS[_avmGroup];
+  document.getElementById('avm-step-label').innerHTML =
+    '<span class="avm-group-ico">' + g.icon + '</span>' +
+    '<span class="avm-step-name">' + t(g.label) + '</span>' +
+    '<span class="avm-step-count">' + (_avmGroup + 1) + '/' + AV_GROUPS.length + '</span>';
+
+  var active = AV_GROUPS[_avmGroup].axes;
+  var rows = document.getElementById('avm-rows');
+  rows.innerHTML = '';
+  if (AV_GROUPS[_avmGroup].presets) { _avmRenderPresets(rows); return; }
+  AV_AXES.filter(function (ax) {
+    if (active.indexOf(ax.id) === -1) return false;
+    // Hide axes whose only remaining choice is 'none' for the current
+    // silhouette (e.g. facial hair on the feminine silhouette), or with
+    // nothing to choose (brows / eyes / mouth under an active expression).
+    var visible = 0;
+    ax.opts.forEach(function (p) { if (avVisible(ax.id, p.id, _avmState)) visible++; });
+    return ax.none ? visible > 1 : visible > 0;
+  }).forEach(function (ax) {
+    var d = document.createElement('div');
+    d.className = 'avm-axis';
+    var lab = document.createElement('span');
+    lab.className = 'avm-axis-label';
+    lab.textContent = t(ax.label);
+    d.appendChild(lab);
+    var line = document.createElement('div');
+    line.className = 'avm-axis-opts';
+    ax.opts.forEach(function (p, i) {
+      if (!avVisible(ax.id, p.id, _avmState)) return;
+      (function (i) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        var sel = _avmState[ax.id] === i;
+        b.setAttribute('aria-label', t(ax.label) + ' ' + (typeof i === 'string' ? i : i + 1));
+        if (ax.id === 'sex') {
+          b.className = 'avm-opt avm-sex-opt' + (sel ? ' selected' : '');
+          b.innerHTML = avSexIcon(i);
+          b.title = t(i === 0 ? 'avmMale' : 'avmFemale');
+        } else if (ax.none && p === ax.opts[0]) {
+          b.className = 'avm-opt avm-none-opt' + (sel ? ' selected' : '');
+          // a colour axis' option 0 keeps the garment as drawn: « Auto »
+          b.textContent = t(ax.kind === 'color' ? 'avmAuto' : 'avmNone');
+        } else if (ax.kind === 'color') {
+          b.className = 'avm-swatch' + (sel ? ' selected' : '');
+          b.innerHTML = '<span style="background:' + avSwatch(ax.id, i) + '"></span>';
+        } else {
+          // Mini portrait preview with this option applied to the current
+          // recipe -- makes shape choices self-explanatory without i18n.
+          b.className = 'avm-mini' + (sel ? ' selected' : '');
+          // Isolated-part vignette: only the chosen layer, drawn with the
+          // current recipe's palette on the felt backdrop.
+          b.innerHTML = avPartSvg(ax.id, i, _avmState, 40);
+        }
+        // an option to earn (future rewards): greyed out, a lock, no pick
+        var locked = avLocked(ax.id, i);
+        if (locked) { b.classList.add('avm-locked'); b.title = t('avmLocked'); b.setAttribute('aria-disabled', 'true'); }
+        b.addEventListener('click', function () {
+          if (locked) { _avmToast('avmLocked'); return; }
+          _avmState[ax.id] = i;
+          _avmSanitize();
+          _avmPersist(); _avmRender();
+        });
+        line.appendChild(b);
+      })(p.id);
+    });
+    d.appendChild(line);
+    rows.appendChild(d);
+  });
+}
+
+// Starter characters: one card per archetype (full portrait + name);
+// tapping one loads its whole recipe, ready to customise.
+function _avmRenderPresets(rows) {
+  var d = document.createElement('div');
+  d.className = 'avm-axis';
+  var line = document.createElement('div');
+  line.className = 'avm-axis-opts avm-presets';
+  AV_PRESETS.forEach(function (p) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    var locked = avPresetLocked(p.id);
+    b.className = 'avm-preset' + (locked ? ' avm-locked' : '');
+    b.setAttribute('aria-label', t(p.label));
+    b.innerHTML = avSvg(Object.assign({ v: 3 }, p.recipe), 72) + '<span class="avm-preset-name">' + t(p.label) + '</span>';
+    if (locked) { b.title = t('avmLocked'); b.setAttribute('aria-disabled', 'true'); }
+    b.addEventListener('click', function () {
+      if (locked) { _avmToast('avmLocked'); return; }
+      _avmState = avNormalize(Object.assign({ v: 3 }, p.recipe));
+      _avmSanitize();
+      _avmPersist(); _avmRender();
+      _avmScrollTop();
+    });
+    line.appendChild(b);
+  });
+  d.appendChild(line);
+  rows.appendChild(d);
+}
+function _avmToast(key) {
+  try { if (typeof window.showToast === 'function') { window.showToast(t(key), { icon: '\uD83D\uDD12', duration: 2500 }); return; } } catch (e) {}
+}
+
+// ── From a photo (beta) ──────────────────────────────────────────────────
+// Decodes the file (ImageBitmap when available, Image() fallback — same
+// memory precautions as _processAvatarFile in pokerth-client.html), runs
+// the analysis and merges the estimated axes into the recipe. The
+// silhouette is never guessed: the current one is kept.
+function _avmWarn(key, fallback) {
+  if (typeof window._avWarn === 'function') { window._avWarn(key, fallback); return; }
+  try { alert(t(key)); } catch (e) {}
+}
+function _avmFromPhoto(file) {
+  if (!/^image\//.test(file.type)) { _avmWarn('avImgNotImage', 'Please choose an image file.'); return; }
+  var MAX = (typeof window._AV_MAX_FILE_BYTES === 'number') ? window._AV_MAX_FILE_BYTES : 30 * 1024 * 1024;
+  if (file.size > MAX) { _avmWarn('avImgTooLarge', 'This image is too large. Please choose a smaller one.'); return; }
+  avCaptureOpen({ mode: 'photo', file: file, sex: _avmState.sex, onResult: _avmFromCapture });
+}
+// canvas: the framed square; guide: the template oval (fractions); sex:
+// the silhouette chosen in the panel (the analysis never guesses it).
+function _avmFromCapture(canvas, guide, sex) {
+  var res = null;
+  var sexSel = (sex === 0 || sex === 1) ? sex : _avmState.sex;
+  try { res = avPhotoRecipe(canvas, canvas.width, canvas.height, { sex: sexSel, guide: guide, guessSex: false }); }
+  catch (e) { res = null; try { console.error('[avatar-photo] analysis failed', e); } catch (e2) {} }
+  try { window._avPhotoLast = { recipe: res && res.recipe, debug: res && res.debug, sex: sexSel, at: Date.now() }; } catch (e) {} // (beta: inspectable from the console)
+  if (!res || !res.recipe) { _avmWarn('avmPhotoNoFace', 'No face found.'); return; }
+  var next = Object.assign({}, _avmState, res.recipe, { sex: sexSel });
+  _avmState = avNormalize(next);
+  _avmSanitize();
+  _avmPersist(); _avmRender();
+  try { if (typeof window.showToast === 'function') window.showToast(t('avmPhotoDone'), { icon: '\uD83D\uDCF7', duration: 4000 }); } catch (e) {}
+}
+
+// Apply: rasterize the SVG on a 96x96 canvas and reuse the photo-import
+// path (pth_avatar_img + '__img__'): broadcast, seats and the PokerTH
+// avatar-server upload behave exactly as for a camera import.
+function _avmApply() {
+  var svg = avSvg(_avmState, 96);
+  var img = new Image();
+  img.onload = function () {
+    try {
+      var SZ = 96;
+      var cv = document.createElement('canvas');
+      cv.width = SZ; cv.height = SZ;
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, SZ, SZ);
+      var dataUrl = cv.toDataURL('image/jpeg', 0.88);
+      localStorage.setItem('pth_avatar_img', dataUrl);
+      localStorage.setItem('pth_avatar', '__img__');
+      // Nouvelle image = nouveaux octets d'upload a geler (pth_avatar_up,
+      // voir _pthCanvasToUpload dans pokerth.js) : purger l'ancien gel.
+      localStorage.removeItem('pth_avatar_up');
+    } catch (e) { return; }
+    if (typeof window.selectAvatarPopup === 'function') window.selectAvatarPopup('__img__');
+    if (typeof window._broadcastMyAvatar === 'function') window._broadcastMyAvatar('__img__');
+    // Close like a gallery pick: in modal mode the popup keeps
+    // display:flex !important, so the inline display:'none' set by
+    // selectAvatarPopup is not enough -- go through the modal close path.
+    if (typeof window.closeAvatarPickerFromLobby === 'function') window.closeAvatarPickerFromLobby();
+    try { if (typeof window.updateLobbyPill === 'function') window.updateLobbyPill(); } catch (e) {}
+    try {
+      var pi = document.getElementById('player-info-modal');
+      if (pi && pi.style.display !== 'none' && typeof window.openPlayerInfoPopup === 'function') window.openPlayerInfoPopup();
+    } catch (e) {}
+  };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
+// ── Save / share / copy the portrait (narmod 2026-10-13, option B) ──────
+// A ⋯ button on the preview (or a long press / right click on it) opens a
+// small menu. The portrait is re-rendered from the recipe as a 512 px PNG
+// (the seat copy is a 96 px JPEG). The PNG is prepared as soon as the menu
+// opens, so Share and Copy run inside the tap's user activation (Safari
+// rejects navigator.share / clipboard writes after an async gap).
+var AVM_EXPORT_SZ = 512, AVM_EXPORT_NAME = 'pokerth-avatar.png';
+var _avmPng = null; // { key, promise, blob }
+var _avmMenuAt = 0; // opening time: the tap that ends a long press must not close it
+
+function _avmPngPrepare() {
+  var key = JSON.stringify(_avmState);
+  if (_avmPng && _avmPng.key === key) return _avmPng.promise;
+  var entry = { key: key, blob: null, promise: null };
+  entry.promise = new Promise(function (resolve, reject) {
+    var img = new Image();
+    img.onload = function () {
+      try {
+        var cv = document.createElement('canvas');
+        cv.width = AVM_EXPORT_SZ; cv.height = AVM_EXPORT_SZ;
+        cv.getContext('2d').drawImage(img, 0, 0, AVM_EXPORT_SZ, AVM_EXPORT_SZ);
+        cv.toBlob(function (b) {
+          if (!b) { reject(new Error('toBlob')); return; }
+          entry.blob = b; resolve(b);
+        }, 'image/png');
+      } catch (e) { reject(e); }
+    };
+    img.onerror = function () { reject(new Error('svg')); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(avSvg(_avmState, AVM_EXPORT_SZ));
+  });
+  entry.promise.catch(function () { if (_avmPng === entry) _avmPng = null; });
+  _avmPng = entry;
+  return entry.promise;
+}
+
+function _avmCanShare() {
+  try {
+    return !!(navigator.share && navigator.canShare && typeof File === 'function' &&
+      navigator.canShare({ files: [new File([''], AVM_EXPORT_NAME, { type: 'image/png' })] }));
+  } catch (e) { return false; }
+}
+function _avmCanCopy() {
+  return !!(window.ClipboardItem && navigator.clipboard && typeof navigator.clipboard.write === 'function');
+}
+
+function _avmMenuLabels() {
+  var more = document.getElementById('avm-more');
+  if (!more) return;
+  more.title = t('avmMore');
+  more.setAttribute('aria-label', t('avmMore'));
+  var m = document.getElementById('avm-menu');
+  [['save', 'avmSave'], ['share', 'avmShare'], ['copy', 'avmCopy']].forEach(function (a) {
+    var b = m.querySelector('[data-act="' + a[0] + '"] span');
+    if (b) b.textContent = t(a[1]);
+  });
+}
+
+function _avmMenuOpen() {
+  var m = document.getElementById('avm-menu'), more = document.getElementById('avm-more');
+  if (!m || !m.hidden) return;
+  var canShare = _avmCanShare();
+  m.querySelector('[data-act="share"]').hidden = !canShare;
+  // Installed app on iPhone / iPad: Save is left out, see _avmIosPwa().
+  m.querySelector('[data-act="save"]').hidden = canShare && _avmIosPwa();
+  m.querySelector('[data-act="copy"]').hidden = !_avmCanCopy();
+  _avmPngPrepare();
+  m.hidden = false;
+  _avmMenuAt = Date.now();
+  more.setAttribute('aria-expanded', 'true');
+}
+function _avmMenuClose() {
+  var m = document.getElementById('avm-menu'), more = document.getElementById('avm-more');
+  if (!m || m.hidden) return;
+  m.hidden = true;
+  if (more) more.setAttribute('aria-expanded', 'false');
+}
+
+function _avmExportFail(e) {
+  // A dismissed share sheet is not an error.
+  if (e && e.name === 'AbortError') return;
+  try { if (typeof window.showToast === 'function') window.showToast(t('avmExportFail'), { icon: '\u26A0\uFE0F', duration: 3000 }); } catch (e2) {}
+}
+
+// Installed app on iPhone / iPad: an <a download> navigates the app's only
+// web view to the file preview, and closing it (✕ or back) relaunches the
+// app. There the menu shows Share only — the share sheet's « Save Image »
+// entry puts the PNG in Photos and closing the sheet leaves the app as is.
+function _avmIosPwa() {
+  try {
+    var n = window.navigator || {};
+    var ios = /iP(hone|ad|od)/.test(n.userAgent || '') || (n.platform === 'MacIntel' && (n.maxTouchPoints || 0) > 1);
+    return ios && (n.standalone === true || document.documentElement.getAttribute('data-pwa') === '1');
+  } catch (e) { return false; }
+}
+
+function _avmSave(blob) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = AVM_EXPORT_NAME; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+}
+
+function _avmMenuAct(act) {
+  _avmMenuClose();
+  var p = _avmPngPrepare();
+  var ready = _avmPng && _avmPng.blob;
+  if (act === 'copy') {
+    // A Promise in ClipboardItem keeps Safari's user activation.
+    try {
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': ready ? Promise.resolve(ready) : p })]).then(function () {
+        try { if (typeof window.showToast === 'function') window.showToast(t('avmCopied'), { icon: '\uD83D\uDCCB', duration: 2500 }); } catch (e) {}
+      }, _avmExportFail);
+    } catch (e) { _avmExportFail(e); }
+    return;
+  }
+  var run = function (blob) {
+    if (act === 'share') {
+      return navigator.share({ files: [new File([blob], AVM_EXPORT_NAME, { type: 'image/png' })] });
+    }
+    return _avmSave(blob);
+  };
+  try {
+    if (ready) Promise.resolve(run(ready)).catch(_avmExportFail);
+    else p.then(run).catch(_avmExportFail);
+  } catch (e) { _avmExportFail(e); }
+}
+
+function _avmMenuWire() {
+  var more = document.getElementById('avm-more'), m = document.getElementById('avm-menu');
+  var prev = document.getElementById('avm-preview');
+  more.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (m.hidden) _avmMenuOpen(); else _avmMenuClose();
+  });
+  m.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-act]');
+    if (!b) return;
+    e.stopPropagation();
+    _avmMenuAct(b.getAttribute('data-act'));
+  });
+  // Right click (desktop) / long press (Android fires contextmenu)
+  prev.addEventListener('contextmenu', function (e) { e.preventDefault(); _avmMenuOpen(); });
+  // Long press on iOS (no contextmenu event on touch)
+  var lp = null;
+  var lpStop = function () { if (lp) { clearTimeout(lp); lp = null; } };
+  prev.addEventListener('touchstart', function () { lpStop(); lp = setTimeout(function () { lp = null; _avmMenuOpen(); }, 550); }, { passive: true });
+  prev.addEventListener('touchend', lpStop);
+  prev.addEventListener('touchmove', lpStop, { passive: true });
+  prev.addEventListener('touchcancel', lpStop);
+  document.addEventListener('click', function (e) {
+    if (!m.hidden && !m.contains(e.target) && e.target !== more && Date.now() - _avmMenuAt > 400) _avmMenuClose();
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') _avmMenuClose(); });
+}
+
+// ── Import pane ──────────────────────────────────────────────────────────
+function _avImportRender() {
+  var pane = document.getElementById('avp-pane-import');
+  if (!pane) return;
+  if (!pane.firstChild) {
+    pane.innerHTML =
+      '<div class="avi-drop" id="avi-drop">' +
+      '<div class="avi-ico">\uD83D\uDCF7</div>' +
+      '<div class="avi-line" id="avi-l1"></div>' +
+      '<div class="avi-or" id="avi-l2"></div>' +
+      '<button type="button" class="avm-btn" id="avi-pick"></button>' +
+      '<div class="avi-hint" id="avi-l3"></div>' +
+      '</div>';
+    var drop = document.getElementById('avi-drop');
+    document.getElementById('avi-pick').addEventListener('click', function () {
+      if (typeof window.pickAvatarImage === 'function') window.pickAvatarImage();
+    });
+    drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+    drop.addEventListener('drop', function (e) {
+      e.preventDefault();
+      drop.classList.remove('over');
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f && typeof window._processAvatarFile === 'function') window._processAvatarFile(f);
+    });
+  }
+  document.getElementById('avi-l1').textContent = t('avImportDrop');
+  document.getElementById('avi-l2').textContent = t('avImportOr');
+  document.getElementById('avi-pick').textContent = '\uD83D\uDCC1 ' + t('avImportBtn');
+  document.getElementById('avi-l3').textContent = t('avImportHint');
+}
+
+export { avStudioTab, avStudioReset };
+for (const [k, v] of Object.entries({ avStudioTab, avStudioReset }))
+  window[k] = v;

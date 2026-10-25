@@ -1,0 +1,2527 @@
+// PokerTH web client — Hand recorder (.pdb-compatible model)
+//
+// Capture les mains depuis les événements protocole et les agrège dans le
+// MÊME modèle que le log SQLite du client officiel (voir SPEC_PDB_LOG.md,
+// LogVersion 1). But : alimenter le panneau stats natif + un export .pdb
+// importable par pokerth-tracker (Ollika).
+//
+// Conception : module AUTONOME. pokerth.js n'appelle que des hooks optionnels
+// window._handlog*(...). Si ce module n'est pas chargé, les hooks sont absents
+// et le jeu tourne exactement comme avant (aucune régression possible).
+//
+// Activation : option avancée pth_stats_track (ON par défaut). Désactivée →
+// aucune capture (les hooks sortent immédiatement).
+//
+// Encodage cartes : entiers bruts 0..51 (identiques protocole + log officiel).
+// Aucune conversion.
+
+import { featureOff } from './feature-off.mjs';
+
+// Lecture de l'option d'activation (ON par défaut). Relue à chaque événement
+// pour réagir immédiatement à un changement dans les options avancées.
+function _trackingEnabled() {
+  if (featureOff('stats_track')) return false;
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const v = localStorage.getItem('pth_stats_track');
+    return v === null ? true : v === '1';
+  } catch (_e) { return true; }
+}
+
+// ── Constantes alignées sur le moteur/officiel ────────────────────────────
+// BeRo : 0=preflop 1=flop 2=turn 3=river 4=showdown (= notre gameState + le
+// showdown ajouté en fin de main).
+const BERO = { preflop: 0, flop: 1, turn: 2, river: 3, showdown: 4 };
+
+// Action numérique du protocole (PlayersActionDone.playerAction) → chaîne de
+// log EXACTE du client officiel. 1=Fold 2=Check 3=Call 4=Bet 5=Raise 6=All-in.
+// Bet ET Raise fusionnent en 'bets' (comme transformPlayerActionLog côté C++).
+const ACTION_STR = {
+  1: 'folds',
+  2: 'checks',
+  3: 'calls',
+  4: 'bets',
+  5: 'bets',
+  6: 'is all in with',
+};
+
+// LogVersion du format .pdb officiel courant.
+const LOG_VERSION = 1;
+
+// ── État interne ──────────────────────────────────────────────────────────
+// Un enregistreur = une SESSION (comme un fichier .pdb). On tient en mémoire
+// la structure complète puis on la persiste (IndexedDB) et/ou on l'exporte.
+
+function _now() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return {
+    date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`,
+    time: `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`,
+  };
+}
+
+class HandRecorder {
+  constructor(opts = {}) {
+    const t = _now();
+    this.sessionId = opts.sessionId || (t.date + '_' + t.time.replace(/:/g, ''));
+    // Callbacks optionnels de persistance (le store les branche ; le recorder
+    // reste testable sans IndexedDB). Appelés au fil des événements.
+    this.onGamePersist = opts.onGamePersist || null;   // (session, game, players)
+    this.onHandPersist = opts.onHandPersist || null;   // (hand, actionsDeLaMain)
+    // Hooks « intervalle de log » (parite log.cpp : LogInterval 0/1/2). Purement
+    // additifs : sans eux le recorder se comporte exactement comme avant.
+    this.onActionPersist = opts.onActionPersist || null;   // () apres chaque action loggee
+    this.onGameEndPersist = opts.onGameEndPersist || null; // () a la fin d'une partie
+    this.session = {
+      pokerthVersion: opts.version || 'web',
+      date: t.date,
+      time: t.time,
+      logVersion: LOG_VERSION,
+    };
+    this.games = [];   // {uniqueGameID, gameID, startMoney, startSb, dealerPos, winnerSeat}
+    this.players = []; // {uniqueGameID, seat, player}
+    this.hands = [];   // voir _newHand()
+    this.actions = []; // {actionID, handID, uniqueGameID, beRo, seat, action, amount}
+
+    this._uniqueGameID = 0;   // compteur de session (démarre à 1 au 1er game)
+    this._actionID = 0;       // AUTOINCREMENT
+    this._curGame = null;
+    this._curHand = null;
+    this._round = BERO.preflop;
+    // pid → seat(1..10) pour la partie courante ; posté par onGameStart.
+    this._seatOfPid = {};
+    // seat → { revealedThisHand:bool } pour gérer shows/has en run-out.
+    this._revealed = {};
+    // Suivi du "raise TO" par street pour convertir totalPlayerBet → montant loggé.
+    // Le protocole donne totalPlayerBet (mise totale du joueur sur la street) ;
+    // le log officiel écrit : calls = delta ajouté ; bets = total atteint (raise TO).
+    this._streetBetOf = {}; // seat → dernier totalBet posté cette street
+    this._streetHighest = 0; // plus haute mise atteinte cette street
+  }
+
+  // ── Nouvelle partie ──────────────────────────────────────────────────────
+  // seatMap : Array de { pid, seat(1..10), name } pour les joueurs actifs.
+  onGameStart({ gameID, startMoney, startSb, dealerSeat, seatMap }) {
+    if (!_trackingEnabled()) { this._curGame = null; this._curHand = null; return; }
+    this._uniqueGameID += 1;
+    const ug = this._uniqueGameID;
+    this._curGame = {
+      uniqueGameID: ug,
+      gameID: gameID | 0,
+      startMoney: startMoney | 0,
+      startSb: startSb | 0,
+      dealerPos: dealerSeat | 0,
+      winnerSeat: null, // le client officiel ne le remplit pas
+    };
+    this.games.push(this._curGame);
+
+    this._seatOfPid = {};
+    (seatMap || []).forEach((s) => {
+      this._seatOfPid[s.pid] = s.seat;
+      this.players.push({ uniqueGameID: ug, seat: s.seat, player: s.name });
+    });
+
+    if (this.onGamePersist) {
+      try {
+        const gamePlayers = (seatMap || []).map((s) => ({ uniqueGameID: ug, seat: s.seat, player: s.name }));
+        this.onGamePersist(this.session, this._curGame, gamePlayers);
+      } catch (_e) {}
+    }
+  }
+
+  // ── Nouvelle main ────────────────────────────────────────────────────────
+  // stacks : { seat(1..10) → cash de début de main } (NULL pour siège inactif).
+  // sbSeat/bbSeat/dealerSeat en base 1.
+  onHandStart({ handID, dealerSeat, sbSeat, sbAmount, bbSeat, bbAmount, stacks }) {
+    if (!this._curGame || !_trackingEnabled()) return;
+    this._round = BERO.preflop;
+    this._revealed = {};
+    this._streetBetOf = {};
+    this._streetHighest = 0;
+
+    const h = this._newHand(handID, dealerSeat, sbSeat, sbAmount, bbSeat, bbAmount, stacks);
+    this._curHand = h;
+    this._handActionStart = this.actions.length; // pour extraire les actions de CETTE main
+    this.hands.push(h);
+
+    // Chronologie officielle : dealer, puis SB, puis BB (heads-up : dealer==SB,
+    // action loggée au siège SB). On reproduit à l'identique.
+    const nActive = Object.values(stacks || {}).filter((v) => v != null).length;
+    if (nActive === 2) {
+      this._pushAction(sbSeat, 'starts as dealer', null);
+    } else {
+      this._pushAction(dealerSeat, 'starts as dealer', null);
+    }
+    if (sbAmount > 0) this._pushAction(sbSeat, 'posts small blind', sbAmount);
+    if (bbAmount > 0) this._pushAction(bbSeat, 'posts big blind', bbAmount);
+    // Les blinds occupent déjà le "highest" de la street preflop.
+    if (sbAmount > 0) { this._streetBetOf[sbSeat] = sbAmount; }
+    if (bbAmount > 0) { this._streetBetOf[bbSeat] = bbAmount; this._streetHighest = Math.max(this._streetHighest, bbAmount); }
+  }
+
+  _newHand(handID, dealerSeat, sbSeat, sbAmount, bbSeat, bbAmount, stacks) {
+    const seatCols = {};
+    for (let i = 1; i <= 10; i++) {
+      seatCols['Seat_' + i + '_Cash'] = (stacks && stacks[i] != null) ? stacks[i] : null;
+      seatCols['Seat_' + i + '_Card_1'] = null;
+      seatCols['Seat_' + i + '_Card_2'] = null;
+      seatCols['Seat_' + i + '_Hand_text'] = null;
+      seatCols['Seat_' + i + '_Hand_int'] = null;
+    }
+    return {
+      handID: handID | 0,
+      uniqueGameID: this._curGame.uniqueGameID,
+      dealerSeat: dealerSeat | 0,
+      sbAmount: sbAmount | 0, sbSeat: sbSeat | 0,
+      bbAmount: bbAmount | 0, bbSeat: bbSeat | 0,
+      board: [null, null, null, null, null],
+      ...seatCols,
+    };
+  }
+
+  // ── Mes cartes fermées ───────────────────────────────────────────────────
+  // Le log officiel enregistre TOUJOURS les hole cards du joueur qui logge,
+  // même sans abattage : le client les connaît dès HandStart. Sans ce hook la
+  // colonne Seat_<moi>_Card_* ne se remplissait qu'aux mains allées jusqu'à
+  // l'abattage (18 mains sur 67 dans le log du 2026-07-28).
+  onOwnCards({ pid, card1, card2 }) {
+    if (!this._curHand) return;
+    const seat = this._seatOfPid[pid];
+    if (seat == null) return;
+    if (card1 == null || card2 == null) return;
+    if (card1 < 0 || card1 > 51 || card2 < 0 || card2 > 51) return;
+    this._curHand['Seat_' + seat + '_Card_1'] = card1;
+    this._curHand['Seat_' + seat + '_Card_2'] = card2;
+  }
+
+  // ── Action d'un joueur ───────────────────────────────────────────────────
+  // pid, actionCode (1..6), totalBet (=totalPlayerBet de la street), money(restant).
+  onAction({ pid, actionCode, totalBet }) {
+    if (!this._curHand) return;
+    const seat = this._seatOfPid[pid];
+    if (seat == null) return;
+    const str = ACTION_STR[actionCode];
+    if (!str) return;
+
+    let amount = null;
+    if (str === 'folds' || str === 'checks') {
+      amount = null;
+    } else if (str === 'calls') {
+      // log officiel : jetons AJOUTÉS par ce call (delta sur la street).
+      const prev = this._streetBetOf[seat] || 0;
+      amount = Math.max(0, (totalBet | 0) - prev);
+    } else if (str === 'bets') {
+      // log officiel : mise TOTALE atteinte sur la street (raise TO).
+      amount = totalBet | 0;
+    } else if (str === 'is all in with') {
+      // montant poussé = total sur la street (cohérent avec bets/call all-in).
+      amount = totalBet | 0;
+    }
+
+    if (totalBet != null) {
+      this._streetBetOf[seat] = totalBet | 0;
+      this._streetHighest = Math.max(this._streetHighest, totalBet | 0);
+    }
+    this._pushAction(seat, str, amount);
+  }
+
+  // ── Distribution du board ────────────────────────────────────────────────
+  onFlop(cards) { this._setRound(BERO.flop); this._setBoard(0, cards[0]); this._setBoard(1, cards[1]); this._setBoard(2, cards[2]); }
+  onTurn(card)  { this._setRound(BERO.turn); this._setBoard(3, card); }
+  onRiver(card) { this._setRound(BERO.river); this._setBoard(4, card); }
+
+  _setRound(r) {
+    this._round = r;
+    // Nouvelle street : les mises sont collectées, on repart de 0.
+    this._streetBetOf = {};
+    this._streetHighest = 0;
+  }
+
+  _setBoard(idx, card) {
+    if (!this._curHand) return;
+    if (card != null && card >= 0 && card <= 51) this._curHand.board[idx] = card;
+  }
+
+  // Révélation anticipée (all-in run-out) : shows/has + cartes, sans winner.
+  onRevealCards(reveals) {
+    if (!this._curHand) return;
+    (reveals || []).forEach((r) => {
+      const seat = this._seatOfPid[r.pid];
+      if (seat == null || r.card1 == null || r.card2 == null) return;
+      this._curHand['Seat_' + seat + '_Card_1'] = r.card1;
+      this._curHand['Seat_' + seat + '_Card_2'] = r.card2;
+      const first = !this._revealed[seat];
+      this._revealed[seat] = true;
+      this._pushAction(seat, first ? 'shows' : 'has', null);
+    });
+  }
+
+  // ── Showdown / fin de main ───────────────────────────────────────────────
+  // results : Array de { pid, card1, card2, won(cash gagné), handText?, handInt? }
+  // Le protocole ne fournit pas handText/handInt : on peut les remplir via
+  // evaluateBestHand côté appelant si souhaité (facultatif — NULL sinon).
+  // eliminated : Array de pid dont le stack final = 0 (nouvellement éliminés).
+  // gameOverPid : pid du gagnant de la partie si elle se termine (sinon null).
+  onShowdown(results, eliminated, gameOverPid) {
+    if (!this._curHand) return;
+    this._round = BERO.showdown;
+
+    const shown = [];
+    (results || []).forEach((r) => {
+      const seat = this._seatOfPid[r.pid];
+      if (seat == null) return;
+      if (r.card1 != null && r.card2 != null) {
+        this._curHand['Seat_' + seat + '_Card_1'] = r.card1;
+        this._curHand['Seat_' + seat + '_Card_2'] = r.card2;
+        if (r.handText != null) this._curHand['Seat_' + seat + '_Hand_text'] = r.handText;
+        if (r.handInt != null)  this._curHand['Seat_' + seat + '_Hand_int'] = r.handInt;
+        const first = !this._revealed[seat];
+        this._revealed[seat] = true;
+        this._pushAction(seat, first ? 'shows' : 'has', null);
+        shown.push(seat);
+      }
+    });
+
+    this._emitWinners(results);
+    this._emitEndOfHand(eliminated, gameOverPid);
+    this._closeHand();
+  }
+
+  // Gagnants en BeRo=4. Le client officiel logge les side pots d'abord
+  // (`wins (side pot)`) puis le pot PRINCIPAL en dernier (`wins`) — les outils
+  // de stats prennent la 1re ligne `wins` comme gagnant du showdown. Le
+  // protocole web ne distingue pas main/side pot : on traite le plus gros
+  // gain comme le pot principal, le reste en side.
+  _emitWinners(results) {
+    const winners = (results || [])
+      .filter((r) => r.won > 0 && this._seatOfPid[r.pid] != null)
+      .map((r) => ({ seat: this._seatOfPid[r.pid], won: r.won | 0 }));
+    if (winners.length === 1) {
+      this._pushAction(winners[0].seat, 'wins', winners[0].won);
+    } else if (winners.length > 1) {
+      let mainIdx = 0;
+      for (let i = 1; i < winners.length; i++) if (winners[i].won > winners[mainIdx].won) mainIdx = i;
+      winners.forEach((w, i) => { if (i !== mainIdx) this._pushAction(w.seat, 'wins (side pot)', w.won); });
+      this._pushAction(winners[mainIdx].seat, 'wins', winners[mainIdx].won);
+    }
+  }
+
+  // sits out (éliminés, dédupliqué par partie) puis wins game (dernier
+  // survivant) — après le `wins`, en BeRo courant (showdown). Ordre officiel.
+  _emitEndOfHand(eliminated, gameOverPid) {
+    this._sitOut = this._sitOut || new Set();
+    (eliminated || []).forEach((pid) => {
+      const seat = this._seatOfPid[pid];
+      if (seat == null) return;
+      const key = this._curGame.uniqueGameID + ':' + seat;
+      if (this._sitOut.has(key)) return;
+      this._sitOut.add(key);
+      this._pushAction(seat, 'sits out', null);
+    });
+    if (gameOverPid != null) {
+      this._gameOverDone = this._gameOverDone || new Set();
+      const gk = this._curGame.uniqueGameID;
+      if (!this._gameOverDone.has(gk)) {
+        const seat = this._seatOfPid[gameOverPid];
+        if (seat != null) { this._gameOverDone.add(gk); this._pushAction(seat, 'wins game', null); }
+        if (this.onGameEndPersist) { try { this.onGameEndPersist(); } catch (_e) {} }
+      }
+    }
+  }
+
+  // Fin de main sans abattage (tout le monde s'est couché).
+  // Le client officiel logge le `wins` au BeRo de la street atteinte. On accepte
+  // un `round` explicite (gameState courant du client) ; sinon on garde
+  // this._round, tenu à jour par les événements de board.
+  onHandHideEnd({ pid, won, round, eliminated, gameOverPid }) {
+    if (!this._curHand) return;
+    if (round != null && round >= 0 && round <= 4) this._round = round;
+    if (won > 0) {
+      const seat = this._seatOfPid[pid];
+      if (seat != null) this._pushAction(seat, 'wins', won | 0);
+    }
+    this._emitEndOfHand(eliminated, gameOverPid);
+    this._closeHand();
+  }
+
+  _closeHand() {
+    // 'sits out'/'wins game' sont émis dans _emitEndOfHand avant la fermeture.
+    const hand = this._curHand;
+    this._closedHand = hand;                 // pour un éventuel onGameOver tardif
+    this._closedHandStart = this._handActionStart;
+    if (hand && this.onHandPersist) {
+      try {
+        const handActions = this.actions.slice(this._handActionStart);
+        this.onHandPersist(hand, handActions);
+      } catch (_e) {}
+    }
+    this._curHand = null;
+    this._round = BERO.preflop;
+  }
+
+  // Fin de partie signalée tardivement (message EndOfGame séparé) : rattache
+  // `wins game` à la dernière main jouée, en BeRo=4, et re-persiste cette main.
+  // Idempotent : ne réémet pas si déjà fait pour cette partie.
+  onGameOver(pid) {
+    if (!this._curGame || !this._closedHand) return;
+    this._gameOverDone = this._gameOverDone || new Set();
+    const gk = this._curGame.uniqueGameID;
+    if (this._gameOverDone.has(gk)) return;
+    const seat = this._seatOfPid[pid];
+    if (seat == null) return;
+    this._gameOverDone.add(gk);
+    // Émettre en BeRo=4, rattaché au handID de la dernière main.
+    const savedRound = this._round;
+    this._round = BERO.showdown;
+    this._actionID += 1;
+    this.actions.push({
+      actionID: this._actionID,
+      handID: this._closedHand.handID,
+      uniqueGameID: gk,
+      beRo: BERO.showdown,
+      seat: seat | 0,
+      action: 'wins game',
+      amount: null,
+    });
+    this._round = savedRound;
+    // Re-persister la dernière main avec la ligne ajoutée.
+    if (this.onHandPersist) {
+      try {
+        const handActions = this.actions.filter((a) => a.uniqueGameID === gk && a.handID === this._closedHand.handID);
+        this.onHandPersist(this._closedHand, handActions);
+      } catch (_e) {}
+    }
+  }
+
+  // ── Bas niveau ───────────────────────────────────────────────────────────
+  _pushAction(seat, action, amount, handIDOverride) {
+    if (!this._curGame) return;
+    const handID = handIDOverride != null
+      ? handIDOverride
+      : (this._curHand ? this._curHand.handID : (this._lastHandID || 0));
+    if (this._curHand) this._lastHandID = this._curHand.handID;
+    this._actionID += 1;
+    this.actions.push({
+      actionID: this._actionID,
+      handID,
+      uniqueGameID: this._curGame.uniqueGameID,
+      beRo: this._round,
+      seat: seat | 0,
+      action,
+      amount: amount == null ? null : (amount | 0),
+    });
+    if (this.onActionPersist) { try { this.onActionPersist(); } catch (_e) {} }
+  }
+
+  // Snapshot sérialisable (pour IndexedDB / debug / tests).
+  toJSON() {
+    return {
+      session: this.session,
+      games: this.games,
+      players: this.players,
+      hands: this.hands,
+      actions: this.actions,
+    };
+  }
+}
+
+
+// PokerTH web client — Persistance IndexedDB de l'historique des mains.
+//
+// Stocke la session courante (modèle .pdb, voir SPEC_PDB_LOG.md) de façon
+// incrémentale : à chaque main terminée, on écrit games/players/hands/actions
+// dans une base IndexedDB. Survit aux rechargements. Sert de source au panneau
+// stats et à l'export .pdb.
+//
+// Base : 'pth_handlog' · stores : meta, games, players, hands, actions.
+// Clés composites encodées en string pour rester simples et déterministes.
+
+const DB_NAME = 'pth_handlog';
+const DB_VERSION = 1;
+
+function _openDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') { reject(new Error('no-indexeddb')); return; }
+    let req;
+    try { req = indexedDB.open(DB_NAME, DB_VERSION); } catch (e) { reject(e); return; }
+    req.onupgradeneeded = (e) => {
+      // Safari iOS (navigation privée, stockage purgé par ITP, WebView) peut
+      // livrer un upgradeneeded dont e.target.result est undefined : on lit
+      // req.result, et sans base exploitable on avorte l'upgrade proprement
+      // (→ onerror → reject → HandStore._dead) au lieu de jeter hors promesse.
+      let db;
+      try { db = req.result || (e && e.target && e.target.result); } catch (_e) { db = null; }
+      try {
+        if (!db || !db.objectStoreNames) throw new Error('no-db-in-upgrade');
+        if (!db.objectStoreNames.contains('meta'))    db.createObjectStore('meta', { keyPath: 'k' });
+        if (!db.objectStoreNames.contains('games'))   db.createObjectStore('games', { keyPath: 'id' });   // id = `${sessionId}:${uniqueGameID}`
+        if (!db.objectStoreNames.contains('players')) db.createObjectStore('players', { keyPath: 'id' }); // id = `${sessionId}:${ug}:${seat}`
+        if (!db.objectStoreNames.contains('hands'))   db.createObjectStore('hands', { keyPath: 'id' });   // id = `${sessionId}:${ug}:${handID}`
+        if (!db.objectStoreNames.contains('actions')) db.createObjectStore('actions', { keyPath: 'id' }); // id = `${sessionId}:${actionID}`
+      } catch (err) {
+        try { if (req.transaction) req.transaction.abort(); } catch (_e) {}
+        reject(err);
+      }
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db) { reject(new Error('no-db')); return; }
+      resolve(db);
+    };
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => {};
+  });
+}
+
+class HandStore {
+  constructor() {
+    this._db = null;
+    this._dead = false;      // IndexedDB indisponible : ne jamais réessayer.
+    this._quotaHit = false;  // Stockage plein : écritures suspendues pour la session.
+    this._ready = _openDb().then((db) => { this._db = db; this._watchClose(db); })
+                           .catch(() => { this._db = null; this._dead = true; });
+  }
+
+  // Le navigateur peut fermer la base sans nous prévenir par une erreur
+  // (Android sous pression de stockage, onglet gelé/réactivé) : on oublie le
+  // handle, _tx rouvrira à la demande au lieu de jeter « connection is
+  // closing » en rejection non gérée.
+  _watchClose(db) {
+    try { db.onclose = () => { if (this._db === db) this._db = null; }; } catch (_e) {}
+  }
+
+  _reopen() {
+    this._db = null;
+    this._ready = _openDb().then((db) => { this._db = db; this._watchClose(db); })
+                           .catch(() => { this._db = null; this._dead = true; });
+    return this._ready;
+  }
+
+  async _tx(stores, mode, fn, _retried) {
+    await this._ready;
+    if (this._dead || (this._quotaHit && mode === 'readwrite')) return null;
+    if (!this._db) {
+      if (_retried) return null;
+      await this._reopen();
+      return this._tx(stores, mode, fn, true);
+    }
+    let tx;
+    try {
+      tx = this._db.transaction(stores, mode);
+    } catch (_e) {
+      // InvalidStateError « The database connection is closing » : la base
+      // s'est fermée entre deux mains. Une réouverture, un rejeu, sinon tant
+      // pis pour cette écriture (best-effort, comme le log fichier QML).
+      if (_retried) return null;
+      await this._reopen();
+      return this._tx(stores, mode, fn, true);
+    }
+    return new Promise((resolve, reject) => {
+      const out = fn(tx);
+      const fail = () => {
+        const err = tx.error;
+        if (err && err.name === 'QuotaExceededError') {
+          // Appareil plein : pas un bug du client, et chaque fin de main en
+          // produirait un autre. On suspend l'enregistrement pour la session
+          // (une seule trace console) ; lecture et export restent servis.
+          if (!this._quotaHit) {
+            this._quotaHit = true;
+            try { console.warn('[handlog] storage quota exceeded — hand recording paused for this session'); } catch (_e) {}
+          }
+          resolve(null);
+          return;
+        }
+        reject(err);
+      };
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = fail;
+      tx.onabort = fail;
+    });
+  }
+
+  // Écrit/écrase le méta de session (idempotent).
+  async putSession(sessionId, session) {
+    return this._tx(['meta'], 'readwrite', (tx) => {
+      tx.objectStore('meta').put({ k: 'session:' + sessionId, session, sessionId });
+    });
+  }
+
+  // Persiste une partie (idempotent sur son id).
+  async putGame(sessionId, game) {
+    return this._tx(['games'], 'readwrite', (tx) => {
+      tx.objectStore('games').put({ id: sessionId + ':' + game.uniqueGameID, sessionId, ...game });
+    });
+  }
+
+  async putPlayers(sessionId, players) {
+    return this._tx(['players'], 'readwrite', (tx) => {
+      const st = tx.objectStore('players');
+      players.forEach((p) => st.put({ id: sessionId + ':' + p.uniqueGameID + ':' + p.seat, sessionId, ...p }));
+    });
+  }
+
+  // Persiste une main complète + ses actions (appelé en fin de main).
+  async putHandBundle(sessionId, hand, actions) {
+    return this._tx(['hands', 'actions'], 'readwrite', (tx) => {
+      tx.objectStore('hands').put({ id: sessionId + ':' + hand.uniqueGameID + ':' + hand.handID, sessionId, ...hand });
+      const st = tx.objectStore('actions');
+      actions.forEach((a) => st.put({ id: sessionId + ':' + a.actionID, sessionId, ...a }));
+    });
+  }
+
+  async _all(store) {
+    // Passe par _tx pour profiter des mêmes gardes (réouverture, base morte).
+    let rows = [];
+    await this._tx([store], 'readonly', (tx) => {
+      const req = tx.objectStore(store).getAll();
+      req.onsuccess = () => { rows = req.result || []; };
+    });
+    return rows;
+  }
+
+  // Recharge tout l'historique (toutes sessions) sous forme de tables .pdb.
+  async loadAll() {
+    const [metas, games, players, hands, actions] = await Promise.all([
+      this._all('meta'), this._all('games'), this._all('players'), this._all('hands'), this._all('actions'),
+    ]);
+    return { metas, games, players, hands, actions };
+  }
+
+  async clear() {
+    return this._tx(['meta', 'games', 'players', 'hands', 'actions'], 'readwrite', (tx) => {
+      ['meta', 'games', 'players', 'hands', 'actions'].forEach((s) => tx.objectStore(s).clear());
+    });
+  }
+}
+
+
+// PokerTH web client — Calculateur de statistiques (port du tracker MCNCHEESYF
+// v1.1.4, GPL-3.0, accord d'Ollika). Port fidèle ligne-à-ligne de
+// src/stats/calculator.py + models.py. Voir SPEC_STATS.md.
+//
+// Entrée : tables au modèle .pdb (games/players/hands/actions) telles que
+// produites par le recorder (handlog.mjs) et relues d'IndexedDB.
+// Sortie : { playerName -> statsDict } identique à PlayerStats.to_dict().
+//
+// Aucune dépendance. Utilisable dans le navigateur ou en Node (tests).
+
+const VPIP_ACTIONS = ['calls', 'bets', 'is all in with'];
+const PFR_ACTIONS = ['bets', 'is all in with'];
+const AGGRESSIVE_ACTIONS = ['bets', 'is all in with'];
+const PASSIVE_ACTIONS = ['calls'];
+const RAISE_ACTIONS = ['bets', 'is all in with'];
+const FOLD_ACTIONS = ['folds'];
+// Fenetre de la tendance recente (nombre de dernieres mains du joueur).
+const RECENT_HANDS = 20;
+const SKIP_PATTERNS = ['blind', 'starts as dealer', 'shows', 'wins'];
+
+const containsAny = (str, list) => { const l = (str || '').toLowerCase(); return list.some((x) => l.indexOf(x) !== -1); };
+const isSkip = (str) => { const l = (str || '').toLowerCase(); return SKIP_PATTERNS.some((s) => l.indexOf(s) !== -1); };
+
+// Helper de traduction : passe par window.t (i18n du client) avec repli anglais.
+// Utilisé par le panneau stats, le HUD, la grille de range et le détail.
+function _ht(key, fallback) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.t === 'function') {
+      const v = window.t(key);
+      if (v && v !== key) return v;
+    }
+  } catch (_e) {}
+  return fallback;
+}
+// Python round() = banker's rounding (arrondi au pair) sur 1 décimale.
+// Nécessaire pour parité exacte avec l'oracle (ex. 0.25 → 0.2, pas 0.3).
+const round1 = (n) => {
+  if (!isFinite(n)) return n;
+  const x = n * 10;
+  const floor = Math.floor(x);
+  const diff = x - floor;
+  let r;
+  const EPS = 1e-9;
+  if (Math.abs(diff - 0.5) < EPS) {
+    r = (floor % 2 === 0) ? floor : floor + 1; // vers le pair
+  } else {
+    r = Math.round(x);
+  }
+  return r / 10;
+};
+
+// ── Index des données (équivalent du LogParser) ────────────────────────────
+class StatsData {
+  // tables : { games:[], players:[], hands:[], actions:[] } au modèle .pdb.
+  constructor(tables) {
+    this.games = tables.games || [];
+    this.players = tables.players || [];
+    this.hands = tables.hands || [];
+    this.actions = tables.actions || [];
+
+    // actions triées par actionID (ordre chronologique fiable)
+    this._actions = this.actions.slice().sort((a, b) => (a.actionID | 0) - (b.actionID | 0));
+
+    // index actions par (ug,hand,beRo) et par (ug,hand)
+    this._byGHB = new Map();
+    this._byGH = new Map();
+    for (const a of this._actions) {
+      const ug = a.uniqueGameID, h = a.handID, r = a.beRo;
+      const kGH = ug + ':' + h;
+      const kGHB = kGH + ':' + r;
+      (this._byGHB.get(kGHB) || this._byGHB.set(kGHB, []).get(kGHB)).push(a);
+      (this._byGH.get(kGH) || this._byGH.set(kGH, []).get(kGH)).push(a);
+    }
+
+    // Player → { game → seat }
+    this._seatsOf = new Map();
+    for (const p of this.players) {
+      let m = this._seatsOf.get(p.player); if (!m) { m = new Map(); this._seatsOf.set(p.player, m); }
+      m.set(p.uniqueGameID, p.seat);
+    }
+
+    // Hand → stacks (Seat_i_Cash) index
+    this._handByGH = new Map();
+    for (const h of this.hands) this._handByGH.set(h.uniqueGameID + ':' + h.handID, h);
+
+    // Index par joueur, construits UNE fois. Sans eux, chaque méthode « du
+    // joueur » rebalayait les 4 tables complètes → coût O(joueurs × dataset)
+    // (rapport forum : gel de l'onglet History après import de 759 logs ;
+    // mesuré 18,5 s pour 400 joueurs / 225 k actions, 0,3 s après indexation).
+    this._actsOfName = new Map();   // nom → actions (ordre actionID)
+    this._gamesByUg = new Map();    // uniqueGameID → [games]
+    this._playersByUg = new Map();  // uniqueGameID → [players]
+    this._handsByUg = new Map();    // uniqueGameID → [hands]
+    const _nameByGS = new Map();    // 'ug:seat' → nom
+    for (const p of this.players) {
+      _nameByGS.set(p.uniqueGameID + ':' + p.seat, p.player);
+      (this._playersByUg.get(p.uniqueGameID) || this._playersByUg.set(p.uniqueGameID, []).get(p.uniqueGameID)).push(p);
+    }
+    for (const g of this.games) (this._gamesByUg.get(g.uniqueGameID) || this._gamesByUg.set(g.uniqueGameID, []).get(g.uniqueGameID)).push(g);
+    for (const x of this.hands) (this._handsByUg.get(x.uniqueGameID) || this._handsByUg.set(x.uniqueGameID, []).get(x.uniqueGameID)).push(x);
+    for (const a of this._actions) {
+      const nm = _nameByGS.get(a.uniqueGameID + ':' + a.seat);
+      if (nm == null) continue;
+      (this._actsOfName.get(nm) || this._actsOfName.set(nm, []).get(nm)).push(a);
+    }
+  }
+
+  getPlayers() { return Array.from(this._seatsOf.keys()); }
+  getPlayerSeats(name) { return this._seatsOf.get(name) || new Map(); }
+  getHand(ug, hand) { return this._handByGH.get(ug + ':' + hand) || null; }
+
+  getActions(ug, hand, beRo) {
+    if (beRo != null) return this._byGHB.get(ug + ':' + hand + ':' + beRo) || [];
+    return this._byGH.get(ug + ':' + hand) || [];
+  }
+
+  // Mains où le joueur a AGI (via table Action, siège du joueur dans la partie).
+  getHandsPlayedByPlayer(name) {
+    const out = [];
+    const seen = new Set();
+    for (const a of (this._actsOfName.get(name) || [])) {
+      const k = a.uniqueGameID + ':' + a.handID;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push([a.uniqueGameID, a.handID]);
+    }
+    return out;
+  }
+
+  // Stack de début de main pour le joueur : {"ug:hand" -> cash}.
+  getPlayerHandStacks(name) {
+    const seats = this.getPlayerSeats(name);
+    const res = new Map();
+    for (const h of this.hands) {
+      const seat = seats.get(h.uniqueGameID);
+      if (seat == null) continue;
+      const cash = h['Seat_' + seat + '_Cash'];
+      if (cash != null) res.set(h.uniqueGameID + ':' + h.handID, cash);
+    }
+    return res;
+  }
+
+  handHasShowdown(ug, hand) { return this.getActions(ug, hand, 4).length > 0; }
+
+  getShowdownWinner(ug, hand) {
+    const b4 = this.getActions(ug, hand, 4);
+    for (const a of b4) if (a.action === 'wins') return a.seat;
+    return null;
+  }
+
+  // Toutes les actions preflop (tous joueurs) pour une main.
+  allPreflopActions(ug, hand) { return this.getActions(ug, hand, 0); }
+
+  // Actions preflop du joueur.
+  preflopActionsOfPlayer(name) {
+    return (this._actsOfName.get(name) || []).filter((a) => a.beRo === 0);
+  }
+
+  allActionsOfPlayer(name) {
+    return this._actsOfName.get(name) || [];
+  }
+}
+
+// ── Calculateur ────────────────────────────────────────────────────────────
+class StatsCalculator {
+  constructor(data) { this.d = data; }
+
+  calculatePlayerStats(name) {
+    const d = this.d;
+    const S = {
+      name, total_hands: 0,
+      vpip_hands: 0, pfr_hands: 0,
+      total_bets: 0, total_calls: 0,
+      three_bet_made: 0, three_bet_opportunities: 0,
+      cbet_made: 0, cbet_opportunities: 0,
+      fold_to_3bet_made: 0, fold_to_3bet_opportunities: 0,
+      fold_to_cbet_made: 0, fold_to_cbet_opportunities: 0,
+      steal_attempts: 0, steal_opportunities: 0,
+      fold_to_steal_made: 0, fold_to_steal_opportunities: 0,
+      hands_saw_flop: 0, hands_went_to_showdown: 0, showdowns_won: 0,
+      allin_count: 0, hands_won: 0,
+    };
+
+    const handsPlayed = d.getHandsPlayedByPlayer(name);
+    S.total_hands = handsPlayed.length;
+    if (S.total_hands === 0) return this._finalize(S);
+
+    const playerSeats = d.getPlayerSeats(name);
+    const playerHandStacks = d.getPlayerHandStacks(name);
+
+    // All-in et mains remportees, comptes sur toutes les streets.
+    // `wins` et `wins (side pot)` valent un pot gagne ; `wins game` marque la
+    // fin de partie et non une main, il est donc exclu. Le Set evite de
+    // compter deux fois une main ou le joueur rafle pot principal + side pot.
+    const _wonHands = new Set();
+    for (const a of d.allActionsOfPlayer(name)) {
+      const at = (a.action || '').toLowerCase();
+      if (at.indexOf('is all in with') !== -1) S.allin_count += 1;
+      if (at.indexOf('wins') === 0 && at.indexOf('wins game') !== 0) {
+        _wonHands.add(a.uniqueGameID + ':' + a.handID);
+      }
+    }
+    S.hands_won = _wonHands.size;
+
+    // preflop du joueur groupé par main
+    const preflopByHand = new Map();
+    for (const a of d.preflopActionsOfPlayer(name)) {
+      const k = a.uniqueGameID + ':' + a.handID;
+      (preflopByHand.get(k) || preflopByHand.set(k, []).get(k)).push(a);
+    }
+
+    const pfrHands = [];
+
+    for (const [k, actions] of preflopByHand) {
+      let hasVpip = false, hasPfr = false;
+      for (const a of actions) {
+        const at = (a.action || '').toLowerCase();
+        if (at.indexOf('blind') !== -1) continue;
+        if (containsAny(at, VPIP_ACTIONS)) hasVpip = true;
+        if (containsAny(at, PFR_ACTIONS)) hasPfr = true;
+      }
+      if (hasVpip) S.vpip_hands += 1;
+      if (hasPfr) { S.pfr_hands += 1; pfrHands.push(k); }
+
+      const [ug, hand] = k.split(':').map(Number);
+      const seat = playerSeats.get(ug);
+      if (seat != null) {
+        const allPre = d.allPreflopActions(ug, hand);
+        if (allPre.length) {
+          const stack = playerHandStacks.has(k) ? playerHandStacks.get(k) : null;
+          const tb = this._analyzeThreeBet(allPre, seat, stack);
+          if (tb.opportunity) { S.three_bet_opportunities += 1; if (tb.made) S.three_bet_made += 1; }
+        }
+      }
+    }
+
+    // C-Bet + Fold to 3-Bet : sur les mains où le joueur a raise preflop
+    for (const k of pfrHands) {
+      const [ug, hand] = k.split(':').map(Number);
+      const seat = playerSeats.get(ug);
+      if (seat == null) continue;
+      const cb = this._analyzeCbet(ug, hand, seat);
+      if (cb.opportunity) { S.cbet_opportunities += 1; if (cb.made) S.cbet_made += 1; }
+      const f3 = this._analyzeFoldTo3bet(d.allPreflopActions(ug, hand), seat);
+      if (f3.opportunity) { S.fold_to_3bet_opportunities += 1; if (f3.folded) S.fold_to_3bet_made += 1; }
+    }
+
+    // Fold to C-Bet, WTSD, W$SD
+    for (const [ug, hand] of handsPlayed) {
+      const seat = playerSeats.get(ug);
+      if (seat == null) continue;
+      // ATS / FTS : analyse préflop, indépendante du flop.
+      const st = this._analyzeSteal(ug, hand, seat);
+      if (st) {
+        if (st.stealOpportunity) { S.steal_opportunities += 1; if (st.stealAttempt) S.steal_attempts += 1; }
+        if (st.defenceOpportunity) { S.fold_to_steal_opportunities += 1; if (st.foldedToSteal) S.fold_to_steal_made += 1; }
+      }
+
+      const flop = d.getActions(ug, hand, 1);
+      const sawFlop = flop.some((a) => a.seat === seat);
+      if (!sawFlop) continue;
+      S.hands_saw_flop += 1;
+
+      const fcb = this._analyzeFoldToCbet(ug, hand, seat, d.allPreflopActions(ug, hand));
+      if (fcb.opportunity) { S.fold_to_cbet_opportunities += 1; if (fcb.folded) S.fold_to_cbet_made += 1; }
+
+      if (d.handHasShowdown(ug, hand)) {
+        const sd = d.getActions(ug, hand, 4);
+        const atSd = sd.some((a) => a.seat === seat);
+        if (atSd) {
+          S.hands_went_to_showdown += 1;
+          if (d.getShowdownWinner(ug, hand) === seat) S.showdowns_won += 1;
+        }
+      }
+    }
+
+    // AF : toutes les actions du joueur hors showdown
+    for (const a of d.allActionsOfPlayer(name)) {
+      if (a.beRo === 4) continue;
+      const at = (a.action || '').toLowerCase();
+      if (containsAny(at, AGGRESSIVE_ACTIONS)) S.total_bets += 1;
+      if (containsAny(at, PASSIVE_ACTIONS)) S.total_calls += 1;
+    }
+
+    return this._finalize(S);
+  }
+
+  _analyzeThreeBet(allPre, playerSeat, playerStack) {
+    const res = { opportunity: false, made: false };
+    let lastIdx = -1, lastAmt = 0;
+    for (let i = 0; i < allPre.length; i++) {
+      const a = allPre[i];
+      if (a.seat === playerSeat || isSkip(a.action)) continue;
+      const at = (a.action || '').toLowerCase();
+      if (!containsAny(at, RAISE_ACTIONS)) continue;
+      const amt = a.amount || 0;
+      const hasResp = allPre.slice(i + 1).some((x) => x.seat === playerSeat && !isSkip(x.action));
+      if (!hasResp) continue;
+      if (at.indexOf('is all in with') !== -1) {
+        if (playerStack != null && playerStack <= amt) continue;
+        const allinSeat = a.seat;
+        const othersCan = allPre.slice(i + 1).some((x) => x.seat !== playerSeat && x.seat !== allinSeat && !isSkip(x.action));
+        if (!othersCan) continue;
+      }
+      lastIdx = i; lastAmt = amt;
+    }
+    if (lastIdx === -1) return res;
+    res.opportunity = true;
+    for (const a of allPre.slice(lastIdx + 1)) {
+      if (a.seat !== playerSeat || isSkip(a.action)) continue;
+      if (containsAny((a.action || '').toLowerCase(), RAISE_ACTIONS)) {
+        if ((a.amount || 0) > lastAmt) res.made = true;
+      }
+      break; // une seule action compte
+    }
+    return res;
+  }
+
+  _analyzeCbet(ug, hand, playerSeat) {
+    const res = { opportunity: false, made: false };
+    const flop = this.d.getActions(ug, hand, 1);
+    if (!flop.length) return res;
+    res.opportunity = true;
+    for (const a of flop) {
+      if (a.seat === playerSeat && containsAny((a.action || '').toLowerCase(), RAISE_ACTIONS)) { res.made = true; break; }
+    }
+    return res;
+  }
+
+  _analyzeFoldTo3bet(allPre, playerSeat) {
+    const res = { opportunity: false, folded: false };
+    let playerRaised = false, threeBet = false;
+    for (const a of allPre) {
+      const at = (a.action || '').toLowerCase();
+      if (a.seat === playerSeat) {
+        if (containsAny(at, RAISE_ACTIONS)) playerRaised = true;
+        else if (playerRaised && threeBet && containsAny(at, FOLD_ACTIONS)) { res.folded = true; break; }
+      } else if (playerRaised && containsAny(at, RAISE_ACTIONS)) {
+        threeBet = true; res.opportunity = true;
+      }
+    }
+    return res;
+  }
+
+  _analyzeFoldToCbet(ug, hand, playerSeat, allPre) {
+    const res = { opportunity: false, folded: false };
+    let raiserSeat = null;
+    for (const a of allPre) {
+      if (a.seat !== playerSeat && containsAny((a.action || '').toLowerCase(), RAISE_ACTIONS)) raiserSeat = a.seat;
+    }
+    if (raiserSeat == null) return res;
+    const flop = this.d.getActions(ug, hand, 1);
+    let cbet = false;
+    for (const a of flop) {
+      const at = (a.action || '').toLowerCase();
+      if (a.seat === raiserSeat) { if (containsAny(at, RAISE_ACTIONS)) cbet = true; }
+      else if (a.seat === playerSeat && cbet) {
+        res.opportunity = true;
+        if (containsAny(at, FOLD_ACTIONS)) res.folded = true;
+        break;
+      }
+    }
+    return res;
+  }
+
+  // ── ATS / FTS (extension web, demande forum ; définitions standard) ──────
+  //  · positions de vol : CO (si ≥ 4 joueurs servis), BTN, SB ;
+  //  · opportunité de vol : le joueur est en position de vol et TOUTES les
+  //    actions volontaires avant lui sont des folds (un limp ou une relance
+  //    antérieure annule l'opportunité) ;
+  //  · tentative de vol : entrer en relance ('bets' / all-in — le limp 'calls'
+  //    ne compte pas) ;
+  //  · défense : SB/BB face à une open-relance depuis une position de vol,
+  //    sans call ni re-relance entre le voleur et le défenseur ;
+  //    FTS = fold dans cette situation.
+  // Nécessite dealerSeat/sbSeat/bbSeat + Seat_i_Cash dans la table Hand
+  // (toujours présents dans les logs officiels et web) ; sinon renvoie null.
+  _analyzeSteal(ug, hand, seat) {
+    const d = this.d;
+    const h = d.getHand(ug, hand);
+    if (!h || h.dealerSeat == null) return null;
+    const dealt = [];
+    for (let i = 1; i <= 10; i++) if (h['Seat_' + i + '_Cash'] != null) dealt.push(i);
+    if (dealt.length < 2 || dealt.indexOf(h.dealerSeat) === -1) return null;
+
+    const stealSeats = new Set([h.dealerSeat]);
+    if (h.sbSeat != null) stealSeats.add(h.sbSeat);
+    if (dealt.length >= 4) {
+      // CO = siège servi juste avant le bouton dans l'ordre du ring.
+      const bi = dealt.indexOf(h.dealerSeat);
+      stealSeats.add(dealt[(bi - 1 + dealt.length) % dealt.length]);
+    }
+
+    // Actions préflop VOLONTAIRES en ordre chronologique (allowlist stricte :
+    // fold / call / bet / all-in / check — blinds, dealer, sits out exclus).
+    const isVol = (a) => {
+      const at = (a.action || '').toLowerCase();
+      return containsAny(at, FOLD_ACTIONS) || containsAny(at, VPIP_ACTIONS) || at.indexOf('checks') !== -1;
+    };
+    const vol = d.allPreflopActions(ug, hand).filter(isVol);
+    const isAgg = (a) => containsAny((a.action || '').toLowerCase(), RAISE_ACTIONS);
+    const isFold = (a) => containsAny((a.action || '').toLowerCase(), FOLD_ACTIONS);
+
+    let firstIdx = -1;
+    for (let i = 0; i < vol.length; i++) if (vol[i].seat === seat) { firstIdx = i; break; }
+
+    const res = { stealOpportunity: false, stealAttempt: false, defenceOpportunity: false, foldedToSteal: false };
+    if (firstIdx === -1) return res;
+
+    // Opportunité / tentative de vol.
+    if (stealSeats.has(seat) && seat !== h.bbSeat) {
+      let allFoldBefore = true;
+      for (let i = 0; i < firstIdx; i++) if (!isFold(vol[i])) { allFoldBefore = false; break; }
+      if (allFoldBefore) {
+        res.stealOpportunity = true;
+        if (isAgg(vol[firstIdx])) res.stealAttempt = true;
+      }
+    }
+
+    // Opportunité de défense / fold to steal.
+    if (seat === h.sbSeat || seat === h.bbSeat) {
+      let openIdx = -1;
+      for (let i = 0; i < vol.length; i++) if (!isFold(vol[i])) { openIdx = i; break; }
+      if (openIdx !== -1 && openIdx < firstIdx) {
+        const opener = vol[openIdx];
+        if (opener.seat !== seat && stealSeats.has(opener.seat) && isAgg(opener)) {
+          let cleanBetween = true;
+          for (let i = openIdx + 1; i < firstIdx; i++) if (!isFold(vol[i])) { cleanBetween = false; break; }
+          if (cleanBetween) {
+            res.defenceOpportunity = true;
+            if (isFold(vol[firstIdx])) res.foldedToSteal = true;
+          }
+        }
+      }
+    }
+    return res;
+  }
+
+  _finalize(S) {
+    const pct = (n, d) => (d === 0 ? 0 : (n / d) * 100);
+    const af = S.total_calls === 0 ? (S.total_bets > 0 ? Infinity : 0) : S.total_bets / S.total_calls;
+    return {
+      name: S.name,
+      hands: S.total_hands,
+      vpip: round1(pct(S.vpip_hands, S.total_hands)),
+      pfr: round1(pct(S.pfr_hands, S.total_hands)),
+      af: af === Infinity ? 'inf' : round1(af),
+      three_bet: round1(pct(S.three_bet_made, S.three_bet_opportunities)),
+      cbet: round1(pct(S.cbet_made, S.cbet_opportunities)),
+      fold_to_3bet: round1(pct(S.fold_to_3bet_made, S.fold_to_3bet_opportunities)),
+      fold_to_cbet: round1(pct(S.fold_to_cbet_made, S.fold_to_cbet_opportunities)),
+      ats: round1(pct(S.steal_attempts, S.steal_opportunities)),
+      fts: round1(pct(S.fold_to_steal_made, S.fold_to_steal_opportunities)),
+      wtsd: round1(pct(S.hands_went_to_showdown, S.hands_saw_flop)),
+      wsd: round1(pct(S.showdowns_won, S.hands_went_to_showdown)),
+      allin: S.allin_count,
+      won: round1(pct(S.hands_won, S.total_hands)),
+    };
+  }
+
+  // Tendance recente : LES MEMES stats, recalculees sur les RECENT_HANDS
+  // dernieres mains du joueur seulement. On reconstruit une StatsData reduite
+  // a ces mains ENTIERES (actions des adversaires comprises) plutot que de
+  // dupliquer la logique : aucune divergence de definition possible avec les
+  // stats globales, et celles qui dependent des adversaires (3-Bet, C-Bet,
+  // Fold to C-Bet...) restent correctes.
+  recentStatsFor(name) {
+    const d = this.d;
+    const hands = d.getHandsPlayedByPlayer(name); // ordre chronologique
+    if (hands.length === 0) return null;
+    const last = hands.slice(-RECENT_HANDS);
+    const keepHand = new Set(last.map(([ug, h]) => ug + ':' + h));
+    const keepGame = new Set(last.map(([ug]) => ug));
+    // Sous-jeu monté depuis les index : sans cela, chaque joueur refiltrait
+    // les 4 tables entières (cause principale du gel History sur gros import).
+    const sGames = [], sPlayers = [], sHands = [], sActions = [];
+    for (const ug of keepGame) {
+      const g = d._gamesByUg.get(ug); if (g) sGames.push(...g);
+      const p = d._playersByUg.get(ug); if (p) sPlayers.push(...p);
+    }
+    for (const k of keepHand) {
+      const [ug, hd] = k.split(':').map(Number);
+      const hh = d._handByGH.get(k); if (hh) sHands.push(hh);
+      sActions.push(...d.getActions(ug, hd));
+    }
+    const sub = new StatsData({ games: sGames, players: sPlayers, hands: sHands, actions: sActions });
+    return new StatsCalculator(sub).calculatePlayerStats(name);
+  }
+
+  // Variante par TRANCHES : même résultat que calculateAllPlayersStats, mais
+  // rend la main au navigateur entre les joueurs (~40 ms de budget) pour que
+  // l'UI reste réactive sur un très gros historique, et signale l'avancement
+  // via onProgress(done, total). La version synchrone reste utilisée partout
+  // où le volume est petit (HUD, tests).
+  async calculateAllPlayersStatsChunked(names, onProgress) {
+    const out = {};
+    const wanted = names && names.length ? new Set(names) : null;
+    const list = this.d.getPlayers().filter((n) => !wanted || wanted.has(n));
+    const yieldNow = () => new Promise((r) => setTimeout(r, 0));
+    let t0 = Date.now();
+    for (let i = 0; i < list.length; i++) {
+      const name = list[i];
+      const s = this.calculatePlayerStats(name);
+      s.recent = this.recentStatsFor(name);
+      out[name] = s;
+      if (Date.now() - t0 > 40) {
+        if (typeof onProgress === 'function') { try { onProgress(i + 1, list.length); } catch (_e) {} }
+        await yieldNow();
+        t0 = Date.now();
+      }
+    }
+    if (typeof onProgress === 'function') { try { onProgress(list.length, list.length); } catch (_e) {} }
+    return out;
+  }
+
+  // `names` (optionnel) restreint le calcul aux joueurs demandés : à une table
+  // on n'affiche que les joueurs assis, inutile de calculer tout l'historique
+  // (gel signalé sur 759 logs importés). Sans argument : tous les joueurs,
+  // comportement d'origine.
+  calculateAllPlayersStats(names) {
+    const out = {};
+    const wanted = names && names.length ? new Set(names) : null;
+    for (const name of this.d.getPlayers()) {
+      if (wanted && !wanted.has(name)) continue;
+      const s = this.calculatePlayerStats(name);
+      s.recent = this.recentStatsFor(name);
+      out[name] = s;
+    }
+    return out;
+  }
+}
+
+// ── Range showdown (combos VPIP visibles) — port de range_window.py ─────────
+const _CARD_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+const _POSITION_NAMES = {
+  2: ['BTN', 'BB'],
+  3: ['BTN', 'SB', 'BB'],
+  4: ['BTN', 'SB', 'BB', 'UTG'],
+  5: ['BTN', 'SB', 'BB', 'UTG', 'CO'],
+  6: ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'],
+  7: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'HJ', 'CO'],
+  8: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'HJ', 'CO'],
+  9: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'HJ', 'CO'],
+  10: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'HJ', 'CO'],
+};
+
+// Deux cartes brutes 0..51 → nom de combo (ex. 'AKs', 'TT', '76o').
+function cardsToCombo(card1, card2) {
+  let v1 = card1 % 13, s1 = Math.floor(card1 / 13);
+  let v2 = card2 % 13, s2 = Math.floor(card2 / 13);
+  if (v1 < v2) { const tv = v1; v1 = v2; v2 = tv; const ts = s1; s1 = s2; s2 = ts; }
+  const r1 = _CARD_RANKS[v1], r2 = _CARD_RANKS[v2];
+  if (v1 === v2) return r1 + r2;
+  return r1 + r2 + (s1 === s2 ? 's' : 'o');
+}
+
+// Combos VPIP visibles au showdown d'un joueur → [{combo, position, nPlayers}].
+function playerVpipCombos(data, name) {
+  const seats = data.getPlayerSeats(name);
+  if (seats.size === 0) return [];
+  // mains où le joueur a VPIP preflop (call/bet/allin), à son siège
+  const vpipHands = new Set();
+  for (const a of data._actions) {
+    if (a.beRo !== 0) continue;
+    if (a.seat !== seats.get(a.uniqueGameID)) continue;
+    if (a.action === 'calls' || a.action === 'bets' || a.action === 'is all in with') {
+      vpipHands.add(a.uniqueGameID + ':' + a.handID);
+    }
+  }
+  if (vpipHands.size === 0) return [];
+  const out = [];
+  for (const h of data.hands) {
+    const key = h.uniqueGameID + ':' + h.handID;
+    if (!vpipHands.has(key)) continue;
+    const seat = seats.get(h.uniqueGameID);
+    if (seat == null) continue;
+    const c1 = h['Seat_' + seat + '_Card_1'], c2 = h['Seat_' + seat + '_Card_2'];
+    if (c1 == null || c2 == null) continue;
+    const occupied = [];
+    for (let s = 1; s <= 10; s++) if (h['Seat_' + s + '_Cash'] != null) occupied.push(s);
+    const nPlayers = occupied.length;
+    const dealer = h.dealerSeat;
+    let position = '?';
+    if (occupied.indexOf(dealer) >= 0 && occupied.indexOf(seat) >= 0) {
+      const di = occupied.indexOf(dealer), pi = occupied.indexOf(seat);
+      const offset = ((pi - di) % nPlayers + nPlayers) % nPlayers;
+      const names = _POSITION_NAMES[nPlayers];
+      position = names ? names[offset] : ('P' + offset);
+    }
+    out.push({ combo: cardsToCombo(c1, c2), position, nPlayers });
+  }
+  return out;
+}
+
+// Couleur continue d'une stat selon sa valeur (dégradé vert→jaune→rouge).
+// Chaque stat a sa plage [lo, hi] : sous lo = vert (bas), au-dessus hi = rouge
+// (haut). Échelle visuelle par magnitude, cohérente entre HUD et panneau.
+// Renvoie une couleur CSS (hsl) lisible sur thèmes sombres et clair, ou '' si
+// non colorable (hands, valeur absente).
+const _STAT_RANGES = {
+  vpip: [12, 45], pfr: [5, 28], af: [0.5, 3.5], three_bet: [1.5, 10],
+  cbet: [35, 80], fold_to_3bet: [30, 70], fold_to_cbet: [35, 75],
+  ats: [15, 45], fts: [50, 85],
+  wtsd: [20, 40], wsd: [42, 58],
+};
+function statColor(id, v) {
+  if (v == null || id === 'hands') return '';
+  const r = _STAT_RANGES[id];
+  if (!r) return '';
+  let n;
+  if (v === 'inf' || v === Infinity) n = Infinity;
+  else { n = (typeof v === 'number') ? v : parseFloat(v); if (isNaN(n)) return ''; }
+  let t = (n === Infinity) ? 1 : (n - r[0]) / (r[1] - r[0]);
+  t = Math.max(0, Math.min(1, t));
+  const hue = Math.round(130 * (1 - t)); // 130 = vert → 0 = rouge (jaune ~65)
+  return 'hsl(' + hue + ',64%,58%)';
+}
+
+// Rangs de la grille 13x13, du plus FORT au plus faible (A en haut a gauche,
+// convention des range charts). L'ordre decroissant garantit que cellCombo
+// produit le rang fort en premier ('AKs', pas 'KAs') — meme convention que
+// cardsToCombo, sinon aucune cellule ne matcherait les combos comptes.
+const GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+
+// Combo d'une cellule (row,col) : diagonale = paires, haut-droite = suited,
+// bas-gauche = offsuit.
+function cellCombo(row, col) {
+  const r1 = GRID_RANKS[row], r2 = GRID_RANKS[col];
+  if (row === col) return r1 + r2;
+  if (row < col) return r1 + r2 + 's';
+  return r2 + r1 + 'o';
+}
+
+
+// PokerTH web client — Onglet Stats du panneau info (GameInfoPanel).
+//
+// Affiche les stats (VPIP/PFR/AF/3Bet/CBet/F3B/FCB/WTSD/W$SD) de tous les
+// joueurs de la table, avec bascule Session courante / Historique cumulé.
+// Lit les mains persistées via window._handlogStore et calcule via
+// StatsCalculator (stats.mjs). Ne modifie pas le jeu.
+//
+// Dépend de : window._handlogStore (handlog.mjs), StatsData/StatsCalculator
+// (assemblés dans le même module), et des globales du client exposées :
+//   window._statsTablePlayers() → [{name}] joueurs de la table (fourni par le glue).
+
+// Icone du bouton « range » des lignes du tableau : mini grille 3x3 dont la
+// diagonale est allumee — evocation de la grille 13x13 (diagonale = paires) et
+// meme langage visuel que le cadran d'archetype. currentColor uniquement.
+const _RANGE_ICO = (function () {
+  let r = '';
+  for (let y = 0; y < 3; y++) {
+    for (let x = 0; x < 3; x++) {
+      r += '<rect x="' + (0.5 + x * 4) + '" y="' + (0.5 + y * 4) + '" width="3" height="3" rx="0.8"'
+        + ' fill="currentColor" opacity="' + (x === y ? '.95' : '.3') + '"/>';
+    }
+  }
+  return '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false">'
+    + r + '</svg>';
+})();
+
+// Rendu paresseux : ne calcule que si l'onglet Stats est visible.
+let _statsScope = 'session'; // 'session' | 'all'
+try { const v = localStorage.getItem('pth_stats_scope'); if (v === 'all' || v === 'session') _statsScope = v; } catch (_e) {}
+
+const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Construit les tables .pdb (modèle recorder) à partir du store, filtrées par
+// portée. En session : uniquement la session courante du recorder.
+// Cache du dernier rendu du tableau de stats (cf. renderStats).
+let _renderCache = null;
+// Compteur de rendus : le calcul par tranches rend la main, un rendu plus
+// récent peut donc démarrer entre-temps ; seul le dernier a le droit d'écrire.
+let _renderSeq = 0;
+
+// Ré-attribue un uniqueGameID unique à l'échelle de TOUT l'historique.
+// Le recorder repart de 1 à chaque chargement de page, et un .pdb importé
+// porte l'UniqueGameID de son propre fichier (souvent 1) : une fois les
+// sessions relues à plat, des parties différentes partageaient donc le même
+// identifiant. Toutes les tables sont indexées par « uniqueGameID:handID »
+// → mains écrasées (compteur de mains effondré), sièges et actions attribués
+// au mauvais joueur, pourcentages absurdes (rapport forum : 3000 mains
+// affichées comme 182, VPIP > 95 % pour tout le monde).
+// Les enregistrements sont déjà cloisonnés par sessionId côté IndexedDB :
+// il suffit de projeter (sessionId, uniqueGameID) sur un entier unique.
+function _nsGames(tables) {
+  const map = new Map();
+  let next = 0;
+  const ug = (r) => {
+    const k = (r.sessionId == null ? '' : r.sessionId) + ':' + r.uniqueGameID;
+    let v = map.get(k);
+    if (v === undefined) { v = ++next; map.set(k, v); }
+    return v;
+  };
+  // Les lignes viennent de getAll() : ce sont des copies fraîches, la
+  // réécriture en place ne touche pas la base.
+  for (const arr of [tables.games, tables.players, tables.hands, tables.actions]) {
+    for (const r of arr) r.uniqueGameID = ug(r);
+  }
+  return tables;
+}
+
+async function _loadTables(scope) {
+  const store = (typeof window !== 'undefined') ? window._handlogStore : null;
+  if (!store) return { games: [], players: [], hands: [], actions: [] };
+  const all = await store.loadAll();
+  let games = all.games, players = all.players, hands = all.hands, actions = all.actions;
+  if (scope === 'session') {
+    const sid = (window._handlog && window._handlog.sessionId) || null;
+    if (sid) {
+      const keep = (r) => r.sessionId === sid;
+      games = games.filter(keep); players = players.filter(keep);
+      hands = hands.filter(keep); actions = actions.filter(keep);
+    }
+  }
+  return _nsGames({ games, players, hands, actions });
+}
+
+// Colonnes du tableau (clé de stat, libellé court, titre).
+// [clé de stat, libellé court, infobulle par défaut, clé i18n éventuelle].
+// Les sigles poker et leur développement (VPIP = Voluntarily Put $ In Pot…)
+// restent en anglais, comme Fold/Check/Call : ce sont des termes du jeu.
+// « N » est du langage courant → traduit dans les 47 langues.
+const COLS = [
+  ['hands', 'N', 'Hands played', 'hlColHands'],
+  ['vpip', 'VPIP', 'Voluntarily Put $ In Pot'],
+  ['pfr', 'PFR', 'Pre-Flop Raise'],
+  ['af', 'AF', 'Aggression Factor'],
+  ['three_bet', '3B', '3-Bet %'],
+  ['cbet', 'CB', 'Continuation Bet %'],
+  ['fold_to_3bet', 'F3B', 'Fold to 3-Bet %'],
+  ['fold_to_cbet', 'FCB', 'Fold to C-Bet %'],
+  ['ats', 'ATS', 'Attempt to Steal %'],
+  ['fts', 'FTS', 'Fold to Steal %'],
+  ['wtsd', 'WTSD', 'Went To Showdown %'],
+  ['wsd', 'W$SD', 'Won $ at Showdown %'],
+];
+
+function _fmt(key, v) {
+  if (v == null) return '–';
+  if (key === 'hands') return String(v);
+  if (key === 'af') return v === 'inf' ? '∞' : String(v);
+  return v + '%';
+}
+
+// Option d'activation du tracking (ON par défaut) — pilote capture ET onglet.
+function _statsEnabled() {
+  if (featureOff('stats_track')) return false;
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const v = localStorage.getItem('pth_stats_track');
+    return v === null ? true : v === '1';
+  } catch (_e) { return true; }
+}
+
+// Affiche/masque le bouton d'onglet Stats selon l'option. Si masqué et que
+// l'onglet courant était 'stats', on bascule sur l'Historique.
+function syncStatsTab() {
+  if (typeof document === 'undefined') return;
+  const btn = document.getElementById('gip-tab-stats');
+  const on = _statsEnabled();
+  if (btn) btn.style.display = on ? '' : 'none';
+  if (!on) {
+    let tab = 'log'; try { tab = localStorage.getItem('pth_gip_tab') || 'log'; } catch (_e) {}
+    if (tab === 'stats') { try { if (typeof window.gipShowTab === 'function') window.gipShowTab('log'); } catch (_e) {} }
+    const body = document.getElementById('g-stats-body');
+    if (body) { body.style.display = 'none'; body.innerHTML = ''; body._built = false; }
+  }
+}
+if (typeof window !== 'undefined') window._syncStatsTab = syncStatsTab;
+
+// Rendu principal — exposé en window._renderStats().
+async function renderStatsPanel() {
+  if (!_statsEnabled()) { syncStatsTab(); return; }
+  const el = (typeof document !== 'undefined') ? document.getElementById('g-stats-body') : null;
+  if (!el) return;
+  // N'agir que si le panneau est ouvert sur l'onglet stats.
+  const panel = document.getElementById('g-log-panel');
+  const open = !!(panel && panel.style.display !== 'none');
+  let tab = 'log'; try { tab = localStorage.getItem('pth_gip_tab') || 'log'; } catch (_e) {}
+  if (!open || tab !== 'stats') return;
+  el.style.display = '';
+
+  const _mySeq = ++_renderSeq;
+
+  // Joueurs de la table (fournis par le glue du client).
+  let tablePlayers = [];
+  try { if (typeof window._statsTablePlayers === 'function') tablePlayers = window._statsTablePlayers() || []; } catch (_e) {}
+  const tableNames = new Set(tablePlayers.map((p) => p.name));
+
+  // En-tête : bascule de portée + export.
+  const scopeBtns =
+    '<div class="stats-scope">'
+    + '<button type="button" class="stats-scope-btn' + (_statsScope === 'session' ? ' on' : '') + '" data-scope="session">' + _ht('hlSession','Session') + '</button>'
+    + '<button type="button" class="stats-scope-btn' + (_statsScope === 'all' ? ' on' : '') + '" data-scope="all">' + _ht('hlHistory','History') + '</button>'
+    + '<button type="button" class="stats-export-btn" data-export="1" title="' + _ht('hlExportPdbTip','Export as .pdb (importable in PokerTH Tracker)') + '">⤓ .pdb</button>'
+    + '</div>';
+
+  if (!el._built) { el.innerHTML = '<div class="odds-hd">' + _ht('gipTabStats','Stats') + '</div>' + scopeBtns + '<div class="stats-wait">…</div>'; el._built = true; }
+
+  const tables = await _loadTables(_statsScope);
+  // Cache : le tableau est re-rendu à chaque ouverture, changement de langue ou
+  // de portée ; sans cache on relisait IndexedDB et on recalculait tout à
+  // chaque fois. Invalidé dès que le volume de données change (nouvelle main,
+  // import, suppression) ou que la liste des joueurs affichés change.
+  const wantNames = tablePlayers.length ? tablePlayers.map((p) => p.name) : null;
+  const ck = _statsScope + '|' + tables.hands.length + '|' + tables.actions.length
+    + '|' + (wantNames ? wantNames.join(',') : '*');
+  let statsByName = {};
+  if (_renderCache && _renderCache.key === ck) {
+    statsByName = _renderCache.stats;
+  } else {
+    // Calcul par tranches : l'UI reste réactive et affiche « n/N » pendant le
+    // calcul d'un gros historique (rapport forum : 759 logs importés).
+    const wait = el.querySelector('.stats-wait');
+    const _pct = (d, tot) => {
+      if (!wait || tot <= 1) return;
+      wait.textContent = _ht('hlComputing', 'Computing\u2026') + ' ' + d + '/' + tot;
+    };
+    try {
+      const data = new StatsData(tables);
+      const calc = new StatsCalculator(data);
+      statsByName = await calc.calculateAllPlayersStatsChunked(wantNames, _pct);
+    } catch (_e) { statsByName = {}; }
+    _renderCache = { key: ck, stats: statsByName };
+    // Un autre rendu a pu passer pendant les pauses : ne pas écraser son écran.
+    if (_renderSeq !== _mySeq) return;
+  }
+
+  // Lignes : joueurs de la table d'abord (ordre de la table), puis rien d'autre.
+  const rowsFor = wantNames || Object.keys(statsByName);
+
+  let head = '<tr><th class="stats-name"></th>';
+  for (const [, lbl, title, i18nKey] of COLS) {
+    const ttl = i18nKey ? _ht(i18nKey, title) : title;
+    head += '<th title="' + _esc(ttl) + '">' + _esc(lbl) + '</th>';
+  }
+  head += '</tr>';
+
+  let body = '';
+  for (const name of rowsFor) {
+    const s = statsByName[name];
+    // « Voir la range ▸ » sert de libellé au bouton du popover HUD ; ici c'est
+    // une infobulle, la flèche n'aurait pas de sens.
+    const rangeTip = _ht('hlSeeRange', 'See range \u25b8').replace(/\s*\u25b8\s*$/, '');
+    body += '<tr><td class="stats-name" title="' + _esc(name) + '">'
+      + '<span class="stats-name-wrap"><span class="stats-name-txt">' + _esc(name) + '</span>'
+      + '<button type="button" class="stats-range-btn" data-range-name="' + _esc(name) + '"'
+      + ' title="' + _esc(rangeTip) + '" aria-label="' + _esc(rangeTip + ' \u2014 ' + name) + '">'
+      + _RANGE_ICO + '</button></span></td>';
+    for (const [key] of COLS) {
+      if (!s) { body += '<td>–</td>'; continue; }
+      const col = statColor(key, s[key]);
+      body += '<td' + (col ? ' style="color:' + col + '"' : '') + '>' + _esc(_fmt(key, s[key])) + '</td>';
+    }
+    body += '</tr>';
+  }
+  if (!body) body = '<tr><td class="stats-empty" colspan="' + (COLS.length + 1) + '">' + _ht('hlNoData','No data yet.') + '</td></tr>';
+
+  el.innerHTML = '<div class="odds-hd">' + _ht('gipTabStats','Stats') + '</div>' + scopeBtns
+    + '<div class="stats-scroll"><table class="stats-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+
+  // Bouton « range » de chaque ligne : ouvre la même fenêtre que le popover HUD.
+  el.querySelectorAll('.stats-range-btn').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      openRangeGrid(b.getAttribute('data-range-name'));
+    };
+  });
+  // Brancher les boutons de portée.
+  const btns = el.querySelectorAll('.stats-scope-btn');
+  btns.forEach((b) => {
+    b.onclick = () => {
+      const sc = b.getAttribute('data-scope');
+      if (sc && sc !== _statsScope) {
+        _statsScope = sc;
+        try { localStorage.setItem('pth_stats_scope', sc); } catch (_e) {}
+        renderStatsPanel();
+      }
+    };
+  });
+  // Bouton d'export .pdb (exporte selon la portée affichée).
+  const exp = el.querySelector('.stats-export-btn');
+  if (exp) exp.onclick = async () => {
+    exp.disabled = true; const old = exp.textContent; exp.textContent = '…';
+    try { if (typeof window._exportPdb === 'function') await window._exportPdb(_statsScope); }
+    catch (_e) {}
+    finally { exp.disabled = false; exp.textContent = old; }
+  };
+}
+
+// Rafraîchissement automatique (appelé à chaque main persistée). Sur la portée
+// History, un recalcul complet par main saccade le jeu au point de faire rater
+// son tour (rapport forum) : une main de plus ne change quasi rien à des
+// milliers, on se limite donc à un rafraîchissement par minute. La portée
+// Session, elle, doit rester immédiate, et toute action de l'utilisateur
+// (ouverture du panneau, changement de portée) passe par renderStatsPanel
+// directement, sans limitation.
+let _autoAt = 0;
+function _renderStatsAuto() {
+  if (_statsScope === 'all') {
+    const now = Date.now();
+    if (now - _autoAt < 60000) return;
+    _autoAt = now;
+  }
+  return renderStatsPanel();
+}
+
+if (typeof window !== 'undefined') {
+  window._renderStats = _renderStatsAuto;      // rafraîchissement auto (par main)
+  window._renderStatsNow = renderStatsPanel;   // rendu immédiat (UI)
+}
+
+
+// PokerTH web client — Export .pdb (log SQLite au format du client officiel).
+//
+// Prend les tables du store (modèle recorder) et produit un fichier .pdb
+// SQLite byte-lisible par le client Qt et par pokerth-tracker (Ollika).
+// Schéma exact : voir SPEC_PDB_LOG.md (LogVersion 1, 5 tables).
+//
+// sql.js (wasm) est chargé paresseusement au premier export (via
+// window._sqlJsUrl / _sqlJsWasmUrl, fournis par le glue du client).
+
+let _SQL = null;
+let _sqlPending = null;
+
+// The .wasm is fetched HERE and handed to sql.js as wasmBinary. Left to
+// itself, sql.js runs fetch(wasm).then(...) with no rejection handler: one
+// failed fetch (CDN <-> origin TLS burst, flaky mobile link) surfaced as an
+// "Unhandled rejection: Failed to fetch" AND left initSqlJs() pending forever,
+// so every later export / autosave of the session waited on it for nothing.
+// Here a failure is retried, then rejected to the caller, and the next call
+// starts over instead of reusing a dead promise.
+const _SQL_RETRY_MS = [0, 700, 2000];
+
+async function _fetchWasm(url) {
+  let last = null;
+  for (let i = 0; i < _SQL_RETRY_MS.length; i++) {
+    if (_SQL_RETRY_MS[i]) await new Promise((r) => setTimeout(r, _SQL_RETRY_MS[i]));
+    try {
+      const r = await fetch(i ? url + '?r=' + i : url, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('sqljs-wasm-http-' + r.status);
+      return new Uint8Array(await r.arrayBuffer());
+    } catch (e) { last = e; }
+  }
+  throw last || new Error('sqljs-wasm-failed');
+}
+
+function _loadSqlScript(url) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = url; s.onload = resolve;
+    s.onerror = () => { try { s.remove(); } catch (_e) {} reject(new Error('sqljs-load-failed')); };
+    document.head.appendChild(s);
+  });
+}
+
+async function _initSql() {
+  const jsUrl = window._sqlJsUrl || '/holdem-practice/vendor/sql-wasm.js';
+  const wasmUrl = window._sqlJsWasmUrl || '/holdem-practice/vendor/sql-wasm.wasm';
+  // initSqlJs est exposé en global par sql-wasm.js (chargé en <script>).
+  // Script and binary are fetched in parallel; a failed script tag is retried
+  // once with a cache-buster (same reason as the binary).
+  const bin = _fetchWasm(wasmUrl);
+  bin.catch(() => {});   // awaited below; avoids an unhandled rejection meanwhile
+  if (typeof window.initSqlJs !== 'function') {
+    try { await _loadSqlScript(jsUrl); }
+    catch (_e) {
+      await new Promise((r) => setTimeout(r, 1000));
+      await _loadSqlScript(jsUrl + '?r=1');
+    }
+  }
+  const wasmBinary = await bin;
+  return window.initSqlJs({ wasmBinary, locateFile: () => wasmUrl });
+}
+
+async function _loadSqlJs() {
+  if (_SQL) return _SQL;
+  if (typeof window === 'undefined') throw new Error('no-window');
+  if (!_sqlPending) {
+    _sqlPending = _initSql().then(
+      (SQL) => { _SQL = SQL; _sqlPending = null; return SQL; },
+      (e) => { _sqlPending = null; throw e; });
+  }
+  return _sqlPending;
+}
+
+// Colonnes de la table Hand (identiques au client officiel).
+function _handColumns() {
+  const cols = ['HandID', 'UniqueGameID', 'Dealer_Seat', 'Sb_Amount', 'Sb_Seat', 'Bb_Amount', 'Bb_Seat'];
+  for (let i = 1; i <= 10; i++) cols.push('Seat_' + i + '_Cash', 'Seat_' + i + '_Card_1', 'Seat_' + i + '_Card_2', 'Seat_' + i + '_Hand_text', 'Seat_' + i + '_Hand_int');
+  for (let i = 1; i <= 5; i++) cols.push('BoardCard_' + i);
+  return cols;
+}
+
+// Construit un .pdb (Uint8Array) depuis des tables au modèle recorder.
+// tables : { session|metas, games, players, hands, actions }.
+async function buildPdb(tables) {
+  const SQL = await _loadSqlJs();
+  const db = new SQL.Database();
+
+  db.run('CREATE TABLE Session (PokerTH_Version TEXT NOT NULL, Date TEXT NOT NULL, Time TEXT NOT NULL, LogVersion INTEGER NOT NULL, PRIMARY KEY(Date,Time));');
+  db.run('CREATE TABLE Game (UniqueGameID INTEGER PRIMARY KEY, GameID INTEGER NOT NULL, Startmoney INTEGER NOT NULL, StartSb INTEGER NOT NULL, DealerPos INTEGER NOT NULL, Winner_Seat INTEGER);');
+  db.run('CREATE TABLE Player (UniqueGameID INTEGER NOT NULL, Seat INTEGER NOT NULL, Player TEXT NOT NULL, PRIMARY KEY(UniqueGameID,Seat));');
+  const handCols = _handColumns();
+  const handDefs = handCols.map((c) => {
+    if (c === 'HandID' || c === 'UniqueGameID') return c + ' INTEGER NOT NULL';
+    if (c === 'Sb_Amount' || c === 'Sb_Seat' || c === 'Bb_Amount' || c === 'Bb_Seat') return c + ' INTEGER NOT NULL';
+    if (/_Hand_text$/.test(c)) return c + ' TEXT';
+    return c + ' INTEGER';
+  });
+  db.run('CREATE TABLE Hand (' + handDefs.join(', ') + ', PRIMARY KEY(HandID,UniqueGameID));');
+  db.run('CREATE TABLE Action (ActionID INTEGER PRIMARY KEY AUTOINCREMENT, HandID INTEGER NOT NULL, UniqueGameID INTEGER NOT NULL, BeRo INTEGER NOT NULL, Player INTEGER NOT NULL, Action TEXT NOT NULL, Amount INTEGER);');
+
+  db.run('BEGIN;');
+
+  // Session (une ligne : la plus ancienne meta, ou fallback).
+  const sess = (tables.session) || (tables.metas && tables.metas[0] && tables.metas[0].session) || { pokerthVersion: 'web', date: '', time: '', logVersion: 1 };
+  db.run('INSERT INTO Session VALUES (?,?,?,?);', [sess.pokerthVersion || 'web', sess.date || '', sess.time || '', sess.logVersion == null ? 1 : sess.logVersion]);
+
+  const gStmt = db.prepare('INSERT INTO Game VALUES (?,?,?,?,?,?);');
+  for (const g of tables.games || []) gStmt.run([g.uniqueGameID, g.gameID | 0, g.startMoney | 0, g.startSb | 0, g.dealerPos | 0, g.winnerSeat == null ? null : g.winnerSeat | 0]);
+  gStmt.free();
+
+  const pStmt = db.prepare('INSERT INTO Player VALUES (?,?,?);');
+  for (const p of tables.players || []) pStmt.run([p.uniqueGameID, p.seat | 0, String(p.player == null ? '' : p.player)]);
+  pStmt.free();
+
+  const hStmt = db.prepare('INSERT INTO Hand (' + handCols.join(',') + ') VALUES (' + handCols.map(() => '?').join(',') + ');');
+  for (const h of tables.hands || []) {
+    const row = handCols.map((c) => {
+      if (c === 'HandID') return h.handID | 0;
+      if (c === 'UniqueGameID') return h.uniqueGameID | 0;
+      if (c === 'Dealer_Seat') return h.dealerSeat == null ? null : h.dealerSeat | 0;
+      if (c === 'Sb_Amount') return h.sbAmount | 0;
+      if (c === 'Sb_Seat') return h.sbSeat | 0;
+      if (c === 'Bb_Amount') return h.bbAmount | 0;
+      if (c === 'Bb_Seat') return h.bbSeat | 0;
+      const bm = c.match(/^BoardCard_(\d)$/);
+      if (bm) { const v = (h.board || [])[+bm[1] - 1]; return v == null ? null : v | 0; }
+      const v = h[c];
+      if (v == null) return null;
+      return /_Hand_text$/.test(c) ? String(v) : (v | 0);
+    });
+    hStmt.run(row);
+  }
+  hStmt.free();
+
+  // Actions : on préserve l'ActionID d'origine (ordre chronologique fiable).
+  const aStmt = db.prepare('INSERT INTO Action (ActionID,HandID,UniqueGameID,BeRo,Player,Action,Amount) VALUES (?,?,?,?,?,?,?);');
+  const acts = (tables.actions || []).slice().sort((a, b) => (a.actionID | 0) - (b.actionID | 0));
+  for (const a of acts) aStmt.run([a.actionID | 0, a.handID | 0, a.uniqueGameID | 0, a.beRo | 0, a.seat | 0, String(a.action || ''), a.amount == null ? null : (a.amount | 0)]);
+  aStmt.free();
+
+  db.run('COMMIT;');
+  const bytes = db.export();
+  db.close();
+  return bytes; // Uint8Array
+}
+
+// Nom de fichier au format officiel.
+function pdbFilename(sess) {
+  const s = sess || {};
+  const date = (s.date || '').replace(/[^0-9-]/g, '') || 'export';
+  const time = (s.time || '').replace(/:/g, '') || '000000';
+  return 'pokerth-log-' + date + '_' + time + '.pdb';
+}
+
+// Déclenche le téléchargement d'un .pdb depuis le store.
+// scope : 'session' | 'all'.
+async function exportPdb(scope) {
+  const store = (typeof window !== 'undefined') ? window._handlogStore : null;
+  if (!store) throw new Error('no-store');
+  const all = await store.loadAll();
+  let { metas, games, players, hands, actions } = all;
+  let sess = (metas && metas[0] && metas[0].session) || null;
+
+  if (scope === 'session') {
+    const sid = (window._handlog && window._handlog.sessionId) || null;
+    if (sid) {
+      const keep = (r) => r.sessionId === sid;
+      games = games.filter(keep); players = players.filter(keep);
+      hands = hands.filter(keep); actions = actions.filter(keep);
+      const meta = metas.find((m) => m.sessionId === sid);
+      if (meta) sess = meta.session;
+    }
+  }
+
+  const bytes = await buildPdb({ session: sess, games, players, hands, actions });
+  const blob = new Blob([bytes], { type: 'application/x-sqlite3' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = pdbFilename(sess);
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (_e) {} }, 100);
+  return true;
+}
+
+if (typeof window !== 'undefined') window._exportPdb = exportPdb;
+// Exposé pour le module journal (Enregistrer sous… d'une session arbitraire).
+if (typeof window !== 'undefined') window._buildPdb = buildPdb;
+// Exposé pour le module journal (import de .pdb : lecture SQLite).
+if (typeof window !== 'undefined') window._loadSqlJs = _loadSqlJs;
+
+
+// PokerTH web client — HUD par siège + grille de range (showdown).
+//
+// HUD : une boîte compacte de stats ancrée près de chaque siège (comme un HUD
+// de tracker), au thème du client. Désactivé par défaut (option pth_hud_on).
+// Un clic sur une boîte ouvre la grille de range 13×13 du joueur.
+//
+// Données : StatsCalculator / playerVpipCombos (stats.mjs), lues depuis
+// window._handlogStore. Positions : ancrées aux éléments .seat[data-pid].
+//
+// Dépend de : window._handlogStore, window._statsTablePlayers (glue client),
+// StatsData/StatsCalculator/playerVpipCombos/cellCombo/GRID_RANKS (assemblés).
+
+function _hudOn() {
+  if (featureOff('hud_on')) return false;
+  try { return localStorage.getItem('pth_hud_on') === '1'; } catch (_e) { return false; }
+}
+
+// Stats affichées dans chaque boîte (id → libellé court).
+const HUD_ROWS = [
+  ['vpip', 'VPIP'], ['pfr', 'PFR'], ['af', 'AF'],
+];
+
+// ── Archetype de jeu (badge de la pastille + popover) ──────────────────────
+// Deux axes que tout le monde lit : serre/large (VPIP) et passif/agressif (AF).
+// Les quatre quadrants couvrent la quasi-totalite des joueurs ; deux extremes
+// (tres serre, hyper-agressif) sont signales en plus. En dessous de
+// STYLE_MIN_HANDS mains l'estimation reste affichee mais attenuee (.reliable
+// false) : mieux vaut une indication prudente que rien du tout.
+const STYLE_MIN_HANDS = 25;
+const _STYLE_FB = {
+  veryTight: 'Very tight', tightPassive: 'Tight-Passive', tightAggr: 'Tight-Aggressive',
+  loosePassive: 'Loose-Passive', looseAggr: 'Loose-Aggressive', hyperAggr: 'Hyper-aggressive',
+};
+function playerStyle(s) {
+  if (!s) return null;
+  const vpip = (typeof s.vpip === 'number') ? s.vpip : parseFloat(s.vpip);
+  if (vpip == null || !isFinite(vpip)) return null;
+  let af = s.af;
+  if (af === 'inf' || af === Infinity) af = Infinity;
+  else { af = (typeof af === 'number') ? af : parseFloat(af); if (af == null || isNaN(af)) af = 0; }
+  const loose = vpip >= 24;
+  const aggro = af >= 2;
+  let id;
+  if (vpip < 15) id = 'veryTight';
+  else if (loose && aggro && vpip >= 45 && af >= 3) id = 'hyperAggr';
+  else if (!loose && !aggro) id = 'tightPassive';
+  else if (!loose && aggro) id = 'tightAggr';
+  else if (loose && !aggro) id = 'loosePassive';
+  else id = 'looseAggr';
+  return {
+    id: id,
+    key: 'hlStyle' + id.charAt(0).toUpperCase() + id.slice(1),
+    loose: loose, aggro: aggro,
+    extreme: (id === 'veryTight' || id === 'hyperAggr'),
+    reliable: (s.hands || 0) >= STYLE_MIN_HANDS,
+  };
+}
+function _styleLabel(st) { return _ht(st.key, _STYLE_FB[st.id]); }
+function _styleTitle(st) {
+  const lbl = _styleLabel(st);
+  if (st.reliable) return lbl;
+  return lbl + ' \u2014 ' + _ht('hlStyleEstimate', 'Estimate \u2014 fewer than 25 hands');
+}
+
+// Cadran 2x2 : axe horizontal serre -> large, axe vertical passif (bas) ->
+// agressif (haut). Le quadrant actif est allume, les extremes recoivent en
+// plus un contour. currentColor partout : un attribut SVG ne resout PAS var().
+const _STYLE_CELLS = [
+  [0.6, 0.6, false, true], [6.4, 0.6, true, true],
+  [0.6, 6.4, false, false], [6.4, 6.4, true, false],
+];
+function _styleIcon(st) {
+  let r = '';
+  for (const [x, y, lo, ag] of _STYLE_CELLS) {
+    const on = (lo === st.loose && ag === st.aggro);
+    r += '<rect x="' + x + '" y="' + y + '" width="5" height="5" rx="1.4" fill="currentColor"'
+      + ' opacity="' + (on ? '1' : '.22') + '"'
+      + (on && st.extreme ? ' stroke="currentColor" stroke-width="1.1" stroke-opacity=".5"' : '')
+      + '/>';
+  }
+  return '<svg class="hud-style-ico" viewBox="0 0 12 12" width="11" height="11"'
+    + ' aria-hidden="true" focusable="false">' + r + '</svg>';
+}
+
+function _hudFmt(id, v) {
+  if (v == null) return '–';
+  if (id === 'af') return v === 'inf' ? '∞' : String(v);
+  if (id === 'hands') return String(v);
+  return v + '%';
+}
+
+// Cache stats/combos calculés (recalcul à chaque main via _hudRefresh).
+let _statsCache = {};
+// Meme calcul restreint a la SESSION courante : sert aux joueurs invites, dont
+// le pseudo n'est pas une identite stable (un invite peut reprendre le pseudo
+// libere par quelqu'un d'autre entre deux sessions). Voir _refreshScopes.
+let _statsCacheSession = {};
+let _scopeOfName = {};
+let _dataCache = null;
+let _lastComputeAt = 0;
+let _computing = false;
+
+async function _computeStats() {
+  const store = (typeof window !== 'undefined') ? window._handlogStore : null;
+  if (!store) return;
+  const all = await store.loadAll();
+  const data = new StatsData(_nsGames({ games: all.games, players: all.players, hands: all.hands, actions: all.actions }));
+  _dataCache = data;
+  // Seuls les joueurs attablés sont lus dans ces caches (cf. _statsFor /
+  // _scopeOfName) : inutile de calculer tout l'historique à chaque passe du
+  // HUD (toutes les 2,5 s en jeu). Sans table connue, comportement d'origine.
+  let _tpNames = [];
+  try {
+    if (typeof window._statsTablePlayers === 'function') {
+      _tpNames = (window._statsTablePlayers() || []).map((p) => p && p.name).filter(Boolean);
+    }
+  } catch (_e) {}
+  const _want = _tpNames.length ? _tpNames : null;
+  _statsCache = new StatsCalculator(data).calculateAllPlayersStats(_want);
+  // Second jeu, restreint a la session courante (portee des invites).
+  const sid = (window._handlog && window._handlog.sessionId) || null;
+  if (sid) {
+    const keep = (r) => r.sessionId === sid;
+    const sData = new StatsData({
+      games:   all.games.filter(keep),
+      players: all.players.filter(keep),
+      hands:   all.hands.filter(keep),
+      actions: all.actions.filter(keep),
+    });
+    _statsCacheSession = new StatsCalculator(sData).calculateAllPlayersStats(_want);
+  } else {
+    _statsCacheSession = _statsCache;
+  }
+  _refreshScopes();
+}
+
+// Determine la portee d'agregation de chaque joueur attable, d'apres les droits
+// serveur remontes par la glue (_statsTablePlayers). Exemptions volontaires :
+//   - moi-meme : mes stats restent completes meme si je joue en invite ;
+//   - les bots : aucun droit serveur, et l'entrainement offline doit rester
+//     mesurable ;
+//   - droits pas encore recus (rights absent / 0) : traites comme INCONNUS et
+//     non comme invites, sinon le bloc s'afficherait puis changerait de valeur
+//     quand la reponse PlayerInfo arrive.
+// Seul rights === 1 (invite confirme) bascule en portee session.
+function _refreshScopes() {
+  let tp = [];
+  try { if (typeof window._statsTablePlayers === 'function') tp = window._statsTablePlayers() || []; } catch (_e) {}
+  const map = {};
+  for (const p of tp) {
+    if (!p || !p.name) continue;
+    map[p.name] = (p.me || p.bot) ? 'all'
+                : (p.rights === 1) ? 'session'
+                : (p.rights >= 2)  ? 'all'
+                : 'pending';
+  }
+  _scopeOfName = map;
+}
+
+// Accesseur unique aux stats d'un joueur : applique la portee ci-dessus.
+// 'pending' (droits pas encore recus) se comporte comme 'all' — le HUD flottant
+// garde ainsi son comportement historique et se corrige seul au recalcul
+// suivant. Seul le popup de profil attend les droits, via playerStatsFor().
+function _statsFor(name) {
+  return (_scopeOfName[name] === 'session') ? _statsCacheSession[name] : _statsCache[name];
+}
+
+// Vrai si les stats affichees pour ce joueur sont limitees a la session.
+function _statsIsSessionScoped(name) { return _scopeOfName[name] === 'session'; }
+
+// Lecteur de portee (tests). Retourne 'all' | 'session' | 'pending' | undefined.
+function _scopeOf(name) { return _scopeOfName[name]; }
+
+// API destinee au popup de profil joueur (ui/player-popup.mjs).
+// Retourne null tant que les droits serveur ne sont pas connus : afficher une
+// portee complete puis basculer en portee session sous les yeux de
+// l'utilisateur serait trompeur, autant ne rien montrer jusque-la.
+function playerStatsFor(name) {
+  if (!_trackingEnabled()) return null;
+  const scope = _scopeOfName[name];
+  if (!scope || scope === 'pending') return null;
+  const s = _statsFor(name);
+  if (!s || !s.hands) return null;
+  return { stats: s, scope: scope, recentWindow: RECENT_HANDS, trendMinBase: _TREND_MIN_BASE };
+}
+if (typeof window !== 'undefined') {
+  window._statColor = statColor;
+  window._playerStatsFor = playerStatsFor;
+  window._statsTrendArrow = (id, rec, glob) => _trendArrow(id, rec, glob);
+}
+
+// Écrit le CONTENU d'une boîte (sans la positionner).
+// Offsets de déplacement manuel des boîtes (par siège), persistés. Permet à
+// l'utilisateur de réarranger les boîtes ; l'offset est un delta appliqué à la
+// position auto (donc la boîte suit le siège tout en gardant l'emplacement
+// choisi). Clé = pid.
+// Offsets de déplacement manuel, SÉPARÉS par orientation : la disposition de la
+// table diffère totalement entre portrait et paysage, donc un déplacement fait
+// en portrait ne doit pas s'appliquer en paysage (et inversement). Structure
+// persistée : { p: {pid:[dx,dy]}, l: {pid:[dx,dy]} }.
+let _manualOffsets = null;
+function _orient() {
+  try {
+    const w = window.innerWidth || 0, h = window.innerHeight || 0;
+    return (h >= w) ? 'p' : 'l';
+  } catch (_e) { return 'p'; }
+}
+function _offsets() {
+  if (_manualOffsets) return _manualOffsets;
+  _manualOffsets = { p: {}, l: {} };
+  try {
+    const j = localStorage.getItem('pth_hud_off');
+    if (j) {
+      const o = JSON.parse(j) || {};
+      // Rétro-compat : ancien format plat {pid:[dx,dy]} → ignoré (réinitialise).
+      if (o && (o.p || o.l)) _manualOffsets = { p: o.p || {}, l: o.l || {} };
+    }
+  } catch (_e) {}
+  return _manualOffsets;
+}
+function _offBucket() { const o = _offsets(); const k = _orient(); if (!o[k]) o[k] = {}; return o[k]; }
+function _saveOffsets() { try { localStorage.setItem('pth_hud_off', JSON.stringify(_offsets())); } catch (_e) {} }
+
+// Drag + tap : un déplacement > seuil = glisser (réarrange) ; sinon = tap
+// (ouvre le détail). Utilise les Pointer Events (souris + tactile).
+function _bindBoxDrag(box, name) {
+  let startX = 0, startY = 0, baseL = 0, baseT = 0, moved = false, dragging = false, pid = box._pid;
+  const onDown = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    dragging = true; moved = false;
+    const p = (e.touches && e.touches[0]) || e;
+    startX = p.clientX; startY = p.clientY;
+    baseL = parseFloat(box.style.left) || 0; baseT = parseFloat(box.style.top) || 0;
+    box.classList.add('hud-dragging');
+    try { box.setPointerCapture && e.pointerId != null && box.setPointerCapture(e.pointerId); } catch (_e) {}
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    const p = (e.touches && e.touches[0]) || e;
+    const dx = p.clientX - startX, dy = p.clientY - startY;
+    if (!moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) moved = true;
+    if (moved) {
+      e.preventDefault();
+      const layer = document.getElementById('hud-layer');
+      const lr = layer ? layer.getBoundingClientRect() : { width: 9999, height: 9999 };
+      let nl = Math.max(2, Math.min(baseL + dx, lr.width - box.offsetWidth - 2));
+      let nt = Math.max(2, Math.min(baseT + dy, lr.height - box.offsetHeight - 2));
+      box.style.left = nl + 'px'; box.style.top = nt + 'px';
+    }
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    box.classList.remove('hud-dragging');
+    if (moved) {
+      // Enregistrer l'offset = position actuelle − position auto (sans offset).
+      const auto = _autoPosFor(pid);
+      if (auto) {
+        const cl = parseFloat(box.style.left) || 0, ct = parseFloat(box.style.top) || 0;
+        _offBucket()[pid] = [Math.round(cl - auto.left), Math.round(ct - auto.top)];
+        _saveOffsets();
+      }
+    } else {
+      // Simple tap → détail.
+      openHudDetail(box._name || name, box);
+    }
+  };
+  box.addEventListener('pointerdown', onDown);
+  box.addEventListener('pointermove', onMove);
+  box.addEventListener('pointerup', onUp);
+  box.addEventListener('pointercancel', onUp);
+}
+
+// Position auto (sans offset manuel) d'un siège donné, pour calculer le delta.
+function _autoPosFor(pid) {
+  const layer = document.getElementById('hud-layer');
+  const box = document.getElementById('hud-box-' + pid);
+  const seatEl = document.querySelector('#g-seats [data-pid="' + pid + '"]');
+  if (!layer || !box || !seatEl) return null;
+  return _computeAutoPos(box, seatEl, layer);
+}
+
+function _buildBox(pid, name, layer) {
+  const s = _statsFor(name);
+  const id = 'hud-box-' + pid;
+  let box = document.getElementById(id);
+  if (!box) {
+    box = document.createElement('div');
+    box.id = id;
+    box.className = 'hud-box';
+    box._pid = pid;
+    _bindBoxDrag(box, name);
+    layer.appendChild(box);
+  }
+  box._name = name;
+  const handsTxt = s ? _hudFmt('hands', s.hands) : '0';
+  let rows = '';
+  for (const [sid, lbl] of HUD_ROWS) {
+    const val = s ? _hudFmt(sid, s[sid]) : '–';
+    const col = s ? statColor(sid, s[sid]) : '';
+    rows += '<span class="hud-stat"><i class="hud-lbl">' + lbl + '</i>'
+      + '<b class="hud-val"' + (col ? ' style="color:' + col + '"' : '') + '>' + val + '</b></span>';
+  }
+  const st = playerStyle(s);
+  const styleRow = st
+    ? '<div class="hud-style' + (st.reliable ? '' : ' hud-style-est') + '" title="'
+        + _hudEsc(_styleTitle(st)) + '">' + _styleIcon(st)
+        + '<span class="hud-style-lbl">' + _hudEsc(_styleLabel(st)) + '</span></div>'
+    : '';
+  box.innerHTML = '<div class="hud-head"><span class="hud-name">' + _hudEsc(name) + '</span>'
+    + '<span class="hud-hands">' + handsTxt + '</span></div>'
+    + '<div class="hud-grid">' + rows + '</div>' + styleRow;
+  return box;
+}
+
+// Positionne une boîte RADIALEMENT vers l'extérieur du siège (comme le QML) :
+// siège en haut → boîte au-dessus, en bas → dessous, à gauche → à gauche, à
+// droite → à droite. Ancré au bord du siège, borné à la couche. Suit le siège
+// à chaque appel (donc au redimensionnement/zoom).
+// Calcule la position AUTO d'une boîte (radial extérieur, avec repli qui évite
+// le centre en portrait). Ne applique PAS l'offset manuel.
+function _computeAutoPos(box, seatEl, layer) {
+  const lr = layer.getBoundingClientRect();
+  const r = seatEl.getBoundingClientRect();
+  const bw = box.offsetWidth || 100;
+  const bh = box.offsetHeight || 40;
+  const gap = 8;
+  const sxC = (r.left + r.width / 2 - lr.left);
+  const syC = (r.top + r.height / 2 - lr.top);
+  const fx = sxC / Math.max(lr.width, 1);
+  const fy = syC / Math.max(lr.height, 1);
+  const portrait = lr.height >= lr.width;
+  const seatL = r.left - lr.left, seatR = r.right - lr.left, seatT = r.top - lr.top, seatB = r.bottom - lr.top;
+  const clampL = (v) => Math.max(2, Math.min(v, lr.width - bw - 2));
+  const clampT = (v) => Math.max(2, Math.min(v, lr.height - bh - 2));
+  const overlaps = (L, T) => !(L + bw < seatL || L > seatR || T + bh < seatT || T > seatB);
+
+  // Candidats de placement, dans l'ordre de préférence selon la zone.
+  const posOutLeft  = { left: clampL(seatL - bw - gap), top: clampT(syC - bh / 2) };
+  const posOutRight = { left: clampL(seatR + gap),      top: clampT(syC - bh / 2) };
+  const posAbove    = { left: clampL(sxC - bw / 2),     top: clampT(seatT - bh - gap) };
+  const posBelow    = { left: clampL(sxC - bw / 2),     top: clampT(seatB + gap) };
+
+  const sideThresh = portrait ? 0.28 : 0.34;
+  const sideZone = (fx < sideThresh || fx > (1 - sideThresh));
+
+  let order;
+  if (sideZone) {
+    // Sièges de colonne (gauche/droite) : extérieur horizontal d'abord ; si ça
+    // ne tient pas (bord d'écran), on passe en VERTICAL (au-dessus/en dessous)
+    // pour NE PAS aller vers le centre (jetons/pucks). Le repli vers le côté
+    // opposé (centre) est le dernier recours seulement.
+    if (fx < 0.5) order = [posOutLeft, (fy < 0.5 ? posBelow : posAbove), (fy < 0.5 ? posAbove : posBelow), posOutRight];
+    else order = [posOutRight, (fy < 0.5 ? posBelow : posAbove), (fy < 0.5 ? posAbove : posBelow), posOutLeft];
+  } else {
+    // Sièges haut/bas : extérieur vertical d'abord, puis latéral extérieur.
+    if (fy < 0.5) order = [posAbove, posBelow, (fx < 0.5 ? posOutLeft : posOutRight)];
+    else order = [posBelow, posAbove, (fx < 0.5 ? posOutLeft : posOutRight)];
+  }
+  // Premier candidat sans recouvrement du siège ; sinon le premier tout court.
+  for (const c of order) { if (!overlaps(c.left, c.top)) return c; }
+  return order[0];
+}
+
+function _positionBox(box, seatEl, layer) {
+  const auto = _computeAutoPos(box, seatEl, layer);
+  let left = auto.left, top = auto.top;
+  // Offset manuel éventuel (déplacement utilisateur), borné à la couche.
+  const off = _offBucket()[box._pid];
+  if (off) {
+    const lr = layer.getBoundingClientRect();
+    left = Math.max(2, Math.min(auto.left + off[0], lr.width - box.offsetWidth - 2));
+    top = Math.max(2, Math.min(auto.top + off[1], lr.height - box.offsetHeight - 2));
+  }
+  box.style.left = left + 'px';
+  box.style.top = top + 'px';
+}
+
+function _hudEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+// Couche d'ancrage : dans #g-table-zone (parent de #g-seats, JAMAIS écrasé par
+// renderSeats qui remplace #g-seats.innerHTML). #g-seats étant inset:0 dans
+// #g-table-zone, la couche partage exactement le même repère que les sièges.
+function _ensureLayer() {
+  let layer = document.getElementById('hud-layer');
+  const host = document.getElementById('g-table-zone')
+    || (document.getElementById('g-seats') && document.getElementById('g-seats').parentNode)
+    || document.body;
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'hud-layer';
+    host.appendChild(layer);
+  } else if (layer.parentNode !== host) {
+    host.appendChild(layer);
+  }
+  return layer;
+}
+
+// Repositionne toutes les boîtes existantes selon les sièges actuels (léger).
+// Exposé window._hudReposition — appelé sur resize / rAF post-rendu.
+function repositionHud() {
+  if (typeof document === 'undefined' || !_hudOn()) return;
+  const layer = document.getElementById('hud-layer');
+  if (!layer) return;
+  Array.from(layer.children).forEach((box) => {
+    if (box.id === 'hud-detail') return; // le popover est repositionné à part
+    const pid = box.id.replace('hud-box-', '');
+    const seatEl = document.querySelector('#g-seats [data-pid="' + pid + '"]');
+    if (seatEl) _positionBox(box, seatEl, layer);
+    else box.style.display = 'none';
+  });
+  // Faire suivre le popover détaillé s'il est ouvert.
+  const pop = document.getElementById('hud-detail');
+  if (pop && pop.style.display !== 'none' && pop._forBox) _positionDetail(pop);
+}
+if (typeof window !== 'undefined') window._hudReposition = repositionHud;
+
+// Rendu principal : (re)construit le contenu des boîtes, puis les positionne
+// à la frame suivante (une fois les sièges effectivement dans le DOM).
+function renderHud() {
+  if (typeof document === 'undefined') return;
+  const layer = document.getElementById('hud-layer');
+  if (!_hudOn()) { if (layer) { layer.innerHTML = ''; layer.style.display = 'none'; } return; }
+  const lay = _ensureLayer();
+  lay.style.display = '';
+  let tablePlayers = [];
+  try { if (typeof window._statsTablePlayers === 'function') tablePlayers = window._statsTablePlayers() || []; } catch (_e) {}
+  _refreshScopes();
+  const seen = new Set();
+  tablePlayers.forEach((p) => {
+    seen.add('hud-box-' + p.pid);
+    _buildBox(p.pid, p.name, lay);
+  });
+  Array.from(lay.children).forEach((c) => { if (c.id !== 'hud-detail' && !seen.has(c.id)) lay.removeChild(c); });
+  // Positionner après le rendu des sièges (renderSeats est throttlé à la frame).
+  _scheduleReposition();
+  _ensureHudObservers();
+  // Affichage dès l'activation / début de partie : si les stats sont périmées
+  // (ou jamais calculées), on recalcule une fois puis on re-rend. Temporisé
+  // pour ne pas recalculer à chaque action.
+  if (!_computing && (Date.now() - _lastComputeAt > 2500)) {
+    _computing = true;
+    _computeStats()
+      .then(() => { _computing = false; _lastComputeAt = Date.now(); if (_hudOn()) renderHud(); })
+      .catch(() => { _computing = false; });
+  }
+}
+if (typeof window !== 'undefined') window._hudRender = renderHud;
+
+// Planifie un repositionnement sur 2 frames (couvre le rAF de renderSeats).
+let _repoScheduled = false;
+function _scheduleReposition() {
+  if (_repoScheduled || typeof requestAnimationFrame === 'undefined') { repositionHud(); return; }
+  _repoScheduled = true;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => { _repoScheduled = false; repositionHud(); });
+  });
+}
+
+// Observers/listeners installés une seule fois : resize fenêtre + ResizeObserver
+// sur #g-seats (couvre zoom table, changement de disposition, etc.).
+let _hudObs = false;
+function _ensureHudObservers() {
+  if (_hudObs || typeof window === 'undefined') return;
+  _hudObs = true;
+  try { window.addEventListener('resize', () => _scheduleReposition()); } catch (_e) {}
+  try { window.addEventListener('orientationchange', () => _scheduleReposition()); } catch (_e) {}
+  try {
+    const host = document.getElementById('g-seats');
+    if (host && typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => _scheduleReposition());
+      ro.observe(host);
+    }
+  } catch (_e) {}
+}
+
+// Recalcule les stats puis re-rend (appelé à chaque fin de main).
+async function refreshHud() {
+  if (!_hudOn()) return;
+  _computing = true;
+  try { await _computeStats(); _lastComputeAt = Date.now(); } finally { _computing = false; }
+  renderHud();
+}
+if (typeof window !== 'undefined') window._hudRefresh = refreshHud;
+
+// Calcul a la demande SANS toucher au HUD : le popup de profil doit afficher
+// les stats meme quand le HUD flottant est desactive.
+async function ensureStatsComputed() {
+  if (!_trackingEnabled()) return;
+  if (_computing) return;
+  if (Object.keys(_statsCache).length && (Date.now() - _lastComputeAt) < 2500) return;
+  _computing = true;
+  try { await _computeStats(); _lastComputeAt = Date.now(); } finally { _computing = false; }
+}
+if (typeof window !== 'undefined') window._statsEnsure = ensureStatsComputed;
+
+// ── Panneau détaillé d'un joueur (tap sur une boîte HUD) ────────────────────
+// Se déroule comme un PROLONGEMENT de la boîte : ancré à celle-ci, il s'ouvre
+// EN DESSOUS pour les joueurs du haut, AU-DESSUS pour ceux du bas (selon la
+// position du siège) → jamais hors écran. Toutes les stats colorées + range.
+const _DETAIL_ROWS = [
+  ['vpip', 'VPIP', 'Voluntarily Put $ In Pot'],
+  ['pfr', 'PFR', 'Pre-Flop Raise'],
+  ['af', 'AF', 'Aggression Factor'],
+  ['three_bet', '3-Bet', '3-Bet %'],
+  ['cbet', 'C-Bet', 'Continuation Bet %'],
+  ['fold_to_3bet', 'Fold 3B', 'Fold to 3-Bet %'],
+  ['fold_to_cbet', 'Fold CB', 'Fold to C-Bet %'],
+  ['wtsd', 'WTSD', 'Went To Showdown %'],
+  ['wsd', 'W$SD', 'Won $ at Showdown %'],
+  ['won', 'Won', 'Hands won %', 'hlWon'],
+  ['allin', 'All-in', 'All-in count'],
+];
+// Seuils de bruit : sur une fenetre de 20 mains, un ecart plus petit que ca
+// n'est pas significatif et ne merite pas de fleche. En dessous de
+// _TREND_MIN_BASE mains au total, la moyenne de reference est trop faible pour
+// qu'une comparaison ait un sens : la ligne n'est pas affichee du tout.
+const _TREND_MIN_BASE = 30;
+const _TREND_EPS = { vpip: 8, pfr: 8, af: 0.8 };
+
+function _trendArrow(id, rec, glob) {
+  if (rec == null || glob == null || rec === 'inf' || glob === 'inf') return '';
+  const delta = rec - glob;
+  if (!isFinite(delta)) return '';
+  if (Math.abs(delta) < (_TREND_EPS[id] || 0)) return '\u2192';
+  return delta > 0 ? '\u2191' : '\u2193';
+}
+
+function _detailFmt(id, v) {
+  if (v == null) return '–';
+  if (id === 'af') return v === 'inf' ? '∞' : String(v);
+  if (id === 'allin') return String(v);
+  return v + '%';
+}
+function _ensureDetail() {
+  let pop = document.getElementById('hud-detail');
+  const layer = _ensureLayer();
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'hud-detail';
+    pop.style.display = 'none';
+    layer.appendChild(pop);
+    // Fermeture au tap en dehors (boîtes ont stopPropagation, donc un tap
+    // ailleurs ferme ; un tap sur une autre boîte ré-ouvre pour elle).
+    if (typeof document !== 'undefined' && !_detailOutsideBound) {
+      _detailOutsideBound = true;
+      document.addEventListener('click', (e) => {
+        const p = document.getElementById('hud-detail');
+        if (!p || p.style.display === 'none') return;
+        // Ignorer les clics sur une boîte HUD (gérés par la boîte elle-même :
+        // tap = ouvrir/basculer le détail) et à l'intérieur du popover.
+        const onBox = e.target && e.target.closest && e.target.closest('.hud-box');
+        if (!onBox && !p.contains(e.target)) _closeDetail();
+      });
+    }
+  } else if (pop.parentNode !== layer) layer.appendChild(pop);
+  return pop;
+}
+let _detailOutsideBound = false;
+function _closeDetail() { const p = document.getElementById('hud-detail'); if (p) { p.style.display = 'none'; p._forBox = null; } }
+
+function openHudDetail(name, boxEl) {
+  if (typeof document === 'undefined' || !boxEl) return;
+  const pop = _ensureDetail();
+  // Toggle : re-tap sur la même boîte → ferme.
+  if (pop.style.display !== 'none' && pop._forBox === boxEl) { _closeDetail(); return; }
+  pop._forBox = boxEl;
+  pop._player = name;
+  const s = _statsFor(name);
+  let rows = '';
+  for (const [id, lbl, title, i18nKey] of _DETAIL_ROWS) {
+    const val = s ? _detailFmt(id, s[id]) : '–';
+    const col = s ? statColor(id, s[id]) : '';
+    rows += '<div class="hud-d-row" title="' + _hudEsc(title) + '">'
+      + '<span class="hud-d-lbl">' + _hudEsc(i18nKey ? _ht(i18nKey, lbl) : lbl) + '</span>'
+      + '<span class="hud-d-val"' + (col ? ' style="color:' + col + '"' : '') + '>' + val + '</span></div>';
+  }
+  const _scopeTag = _statsIsSessionScoped(name)
+    ? '<span class="hud-d-scope">' + _hudEsc(_ht('hlScopeSession', 'session')) + '</span>' : '';
+  // Tendance recente : VPIP / AF de la fenetre courte compares a la moyenne
+  // globale du joueur. Sert a reperer un changement de rythme (tilt, ouverture
+  // du jeu en fin de partie...) que les moyennes globales lissent.
+  let trend = '';
+  if (s && s.recent && s.hands >= _TREND_MIN_BASE) {
+    const r = s.recent;
+    const cell = (id, lbl) => '<span class="hud-d-t-cell"><i>' + lbl + '</i>'
+      + '<b>' + _detailFmt(id, r[id]) + '</b>'
+      + '<u>' + _trendArrow(id, r[id], s[id]) + '</u></span>';
+    trend = '<div class="hud-d-trend" title="' + _hudEsc(RECENT_HANDS + ' ' + _ht('hlHandPlur', 'hands')) + '">'
+      + '<span class="hud-d-t-lbl">' + _hudEsc(_ht('hlTrend', 'Trend')) + '</span>'
+      + cell('vpip', 'VPIP') + cell('af', 'AF') + '</div>';
+  }
+  const stD = playerStyle(s);
+  const styleRow = stD
+    ? '<div class="hud-d-style' + (stD.reliable ? '' : ' hud-style-est') + '" title="'
+        + _hudEsc(_styleTitle(stD)) + '">'
+      + '<span class="hud-d-style-k">' + _hudEsc(_ht('hlStyle', 'Style')) + '</span>'
+      + _styleIcon(stD)
+      + '<span class="hud-d-style-v">' + _hudEsc(_styleLabel(stD)) + '</span></div>'
+    : '';
+  pop.innerHTML = '<div class="hud-d-head"><span class="hud-d-name">' + _hudEsc(name) + '</span>' + _scopeTag
+    + '<span class="hud-d-hands">' + (s ? (s.hands + ' ' + _ht(s.hands === 1 ? 'hlHandSing' : 'hlHandPlur', s.hands === 1 ? 'hand' : 'hands')) : '—') + '</span></div>'
+    + styleRow
+    + '<div class="hud-d-grid">' + rows + '</div>' + trend
+    + '<button type="button" class="hud-d-range">' + _ht('hlSeeRange','See range ▸') + '</button>';
+  pop.querySelector('.hud-d-range').addEventListener('click', (e) => {
+    e.stopPropagation(); const p = pop._player; _closeDetail(); openRangeGrid(p);
+  });
+  pop.style.display = 'block';
+  _positionDetail(pop);
+}
+if (typeof window !== 'undefined') window._openHudDetail = openHudDetail;
+
+// Positionne le popover comme un prolongement de la boîte : sous la boîte si le
+// siège est dans la moitié haute de la table, au-dessus sinon.
+function _positionDetail(pop) {
+  const layer = document.getElementById('hud-layer');
+  const box = pop && pop._forBox;
+  if (!layer || !box) return;
+  const lr = layer.getBoundingClientRect();
+  const br = box.getBoundingClientRect();
+  const bx = br.left - lr.left, by = br.top - lr.top;
+  const pw = pop.offsetWidth || 190, ph = pop.offsetHeight || 150;
+  const gap = 3;
+  const boxMidY = by + br.height / 2;
+  const below = boxMidY < lr.height / 2; // boîte en haut → dérouler en dessous
+  let left = bx + br.width / 2 - pw / 2;
+  left = Math.max(2, Math.min(left, lr.width - pw - 2));
+  let top = below ? (by + br.height + gap) : (by - ph - gap);
+  top = Math.max(2, Math.min(top, lr.height - ph - 2));
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+// ── Grille de range 13×13 ───────────────────────────────────────────────────
+// Fenetre du systeme generique (meme patron que #adv-modal) :
+// conteneur transparent qui laisse passer les clics, carte promue en
+// .floating-win au-dessus de 600 px -> deplacable par son titre,
+// redimensionnable, geometrie memorisee, integree au z-order des fenetres.
+// En dessous du seuil : feuille plein ecran, comme les autres.
+function _rangeSetupFloat(modal) {
+  const card = modal.querySelector('.range-card');
+  if (!card) return;
+  let wide = false;
+  try { wide = window.matchMedia('(min-width:600px)').matches; } catch (_e) {}
+  if (!wide) { try { window._disableFloating(card); } catch (_e) {} return; }
+  if (typeof window._enableFloating !== 'function') return;
+  const maxW = Math.min(760, Math.round(window.innerWidth * 0.94));
+  const maxH = Math.min(720, Math.round(window.innerHeight * 0.92));
+  const openW = Math.max(360, Math.min(maxW, window.innerWidth - 16));
+  const openH = Math.max(320, Math.min(maxH, window.innerHeight - 16));
+  window._enableFloating(card, {
+    key: 'pth_win_range',
+    handle: card.querySelector('.range-title'),
+    resizable: true,
+    maxW: maxW, maxH: maxH,
+    zoom: true,
+    defW: 560, defH: 560,
+    openW: openW, openH: openH,
+    minW: 360, minH: 320,
+    defLeft: Math.max(8, Math.round((window.innerWidth - openW) / 2)),
+    defTop: Math.max(8, Math.round((window.innerHeight - openH) / 2)),
+  });
+}
+
+function _closeRange() {
+  const m = document.getElementById('range-modal');
+  if (m) m.style.display = 'none';
+  try { if (window._syncWinBtns) window._syncWinBtns(); } catch (_e) {}
+}
+
+// _dataCache n'est rempli que par _computeStats (chemin HUD, toutes les 2,5 s
+// en jeu). Le tableau Stats, lui, lit le store directement : HUD desactive, le
+// bouton range de ses lignes serait reste inerte. On construit alors les tables
+// a la demande, une seule fois, puis on rouvre.
+async function _ensureRangeData() {
+  if (_dataCache) return _dataCache;
+  const store = (typeof window !== 'undefined') ? window._handlogStore : null;
+  if (!store) return null;
+  const all = await store.loadAll();
+  _dataCache = new StatsData(_nsGames({
+    games: all.games, players: all.players, hands: all.hands, actions: all.actions,
+  }));
+  return _dataCache;
+}
+
+function openRangeGrid(name, posFilter, playersFilter) {
+  if (typeof document === 'undefined') return;
+  if (!_dataCache) {
+    // Un seul repli possible : si les tables restent introuvables on abandonne
+    // silencieusement plutot que de boucler.
+    _ensureRangeData().then((d) => { if (d) openRangeGrid(name, posFilter, playersFilter); })
+      .catch(() => {});
+    return;
+  }
+  let modal = document.getElementById('range-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'range-modal';
+    modal.innerHTML = '<div class="range-card"><div class="range-head">'
+      + '<span class="range-title"></span>'
+      + '<span class="range-filters"></span>'
+      + '<button type="button" class="range-close" data-i18n-title="closeTooltip" title="' + _ht('closeTooltip','Close') + '">✕</button></div>'
+      + '<div class="range-body"></div>'
+      + '<div class="range-legend">' + _ht('hlRangeLegend','Diagonal = pairs · top-right = suited · bottom-left = offsuit') + '</div></div>';
+    document.body.appendChild(modal);
+    // Plus de fermeture au clic exterieur : c'est une fenetre, pas une modale
+    // (coherent avec l'aide et les options avancees). Seule la croix ferme.
+    modal.querySelector('.range-close').addEventListener('click', _closeRange);
+    // Re-evaluer le seuil fenetre/feuille a chaque changement de gabarit.
+    try {
+      window.addEventListener('resize', () => {
+        const m = document.getElementById('range-modal');
+        if (m && m.style.display && m.style.display !== 'none') _rangeSetupFloat(m);
+      });
+    } catch (_e) {}
+  }
+  modal.style.display = 'flex';
+  modal._player = name;
+  modal._pos = posFilter || 'all';
+  modal._pf = playersFilter || 'all';
+  _renderRange(modal);
+  _rangeSetupFloat(modal);
+  try { if (window._syncWinBtns) window._syncWinBtns(); } catch (_e) {}
+}
+if (typeof window !== 'undefined') { window._openRange = openRangeGrid; window._closeRange = _closeRange; }
+
+function _renderRange(modal) {
+  const name = modal._player;
+  const combos = playerVpipCombos(_dataCache, name);
+  // Options de filtre disponibles.
+  const positions = Array.from(new Set(combos.map((c) => c.position))).filter((p) => p !== '?');
+  const posOrder = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'HJ', 'CO'];
+  positions.sort((a, b) => posOrder.indexOf(a) - posOrder.indexOf(b));
+  const playerCounts = Array.from(new Set(combos.map((c) => c.nPlayers))).sort((a, b) => a - b);
+
+  // Filtrage.
+  const filtered = combos.filter((c) =>
+    (modal._pos === 'all' || c.position === modal._pos)
+    && (modal._pf === 'all' || c.nPlayers === +modal._pf));
+
+  const counts = {};
+  filtered.forEach((c) => { counts[c.combo] = (counts[c.combo] || 0) + 1; });
+  const total = filtered.length;
+  const maxCount = Math.max(1, ...Object.values(counts));
+
+  modal.querySelector('.range-title').textContent = _ht('hlRangeShowdown','Showdown range') + ' — ' + name + '  ·  ' + total + ' ' + _ht(total === 1 ? 'hlHandSing' : 'hlHandPlur', total === 1 ? 'hand' : 'hands');
+
+  // Filtres (position + nb joueurs).
+  let posSel = '<label>' + _ht('hlPosition','Position') + ' <select class="range-pos"><option value="all">' + _ht('hlAllF','All') + '</option>';
+  positions.forEach((p) => { posSel += '<option value="' + p + '"' + (modal._pos === p ? ' selected' : '') + '>' + p + '</option>'; });
+  posSel += '</select></label>';
+  let pfSel = '<label>' + _ht('hlPlayers','Players') + ' <select class="range-pf"><option value="all">' + _ht('hlAllM','All') + '</option>';
+  playerCounts.forEach((n) => { pfSel += '<option value="' + n + '"' + (modal._pf === String(n) ? ' selected' : '') + '>' + n + '</option>'; });
+  pfSel += '</select></label>';
+  const filt = modal.querySelector('.range-filters');
+  filt.innerHTML = posSel + pfSel;
+  filt.querySelector('.range-pos').onchange = (e) => { modal._pos = e.target.value; _renderRange(modal); };
+  filt.querySelector('.range-pf').onchange = (e) => { modal._pf = e.target.value; _renderRange(modal); };
+
+  // Grille 13×13.
+  let html = '<table class="range-grid"><tbody>';
+  for (let row = 0; row < 13; row++) {
+    html += '<tr>';
+    for (let col = 0; col < 13; col++) {
+      const combo = cellCombo(row, col);
+      const count = counts[combo] || 0;
+      let cls = 'range-cell';
+      let style = '';
+      if (count > 0) {
+        const ratio = count / maxCount;
+        const hue = Math.round(120 * (1 - ratio)); // vert→jaune→rouge
+        style = 'background:hsl(' + hue + ',62%,46%);color:#0b0b0b';
+        cls += ' filled';
+      }
+      html += '<td class="' + cls + '" style="' + style + '"><span class="rc-combo">' + combo + '</span>'
+        + (count > 0 ? '<span class="rc-count">' + count + '</span>' : '') + '</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  modal.querySelector('.range-body').innerHTML = html;
+}
+
+
+
+(function () {
+  try {
+    var store = new HandStore();
+    var rec = new HandRecorder({
+      version: (typeof window !== 'undefined' && window.BUILD_VERSION) ? ('web-' + window.BUILD_VERSION) : 'web',
+      onGamePersist: function (session, game, players) {
+        store.putSession(rec.sessionId, session); store.putGame(rec.sessionId, game); store.putPlayers(rec.sessionId, players);
+        // Parite Log::init() : le fichier .pdb existe des le debut de la partie,
+        // schema et ligne Session inclus, avant la premiere main.
+        try { if (typeof window._pdbAutoSave === 'function') window._pdbAutoSave('start'); } catch (_e) {}
+      },
+      onHandPersist: function (hand, actions) {
+        store.putHandBundle(rec.sessionId, hand, actions);
+        try { if (typeof window._renderStats === 'function') window._renderStats(); } catch (_e) {}
+        try { if (typeof window._hudRefresh === 'function') window._hudRefresh(); } catch (_e) {}
+        try { if (typeof window._pdbAutoSave === 'function') window._pdbAutoSave('hand'); } catch (_e) {}
+      },
+      // LogInterval 0 : flush apres chaque action loggee.
+      onActionPersist: function () {
+        try { if (typeof window._pdbAutoSave === 'function') window._pdbAutoSave('action'); } catch (_e) {}
+      },
+      // LogInterval 2 : flush a la fin de la partie (equivalent logAfterGame()).
+      onGameEndPersist: function () {
+        try { if (typeof window._pdbAutoSave === 'function') window._pdbAutoSave('game'); } catch (_e) {}
+      }
+    });
+    if (typeof window !== 'undefined') { window._handlog = rec; window._handlogStore = store; }
+  } catch (_e) {}
+})();
+
+// ── Exports ESM ────────────────────────────────────────────────────────────
+// Uniquement pour les tests deterministes (scripts/test-handlog.mjs). En
+// navigateur le module reste charge par <script type="module"> et continue de
+// ne communiquer que par window.* : ces exports n'ont aucun effet a l'execution.
+export { StatsData, StatsCalculator, RECENT_HANDS,
+         _trendArrow, _TREND_MIN_BASE, _TREND_EPS,
+         _refreshScopes, _scopeOf, playerStatsFor,
+         playerStyle, STYLE_MIN_HANDS, _rangeSetupFloat,
+         _styleIcon, _RANGE_ICO, openRangeGrid };

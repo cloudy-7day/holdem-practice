@@ -1,0 +1,882 @@
+// ═══════════════════════════════════════════════════════════════════
+// Popup joueur (profil, stats, actions) + avatars (rendu, picker lobby,
+// drapeaux pays) — chantier ESM #9f-7.
+// Fonctions déplacées telles quelles depuis l'IIFE App. Adaptations :
+// t (i18n.mjs), esc (misc.mjs), fmtChips (fmt.mjs) importés ; isBot /
+// updateLobbyPill (ponts ajoutés côté monolithe), _petAsk / _isIgnored /
+// _statsBody* / renderBoard / avpApplyDefaultCat via window.* ;
+// $( réécrit en document.getElementById(.
+// ═══════════════════════════════════════════════════════════════════
+import { S } from '../game/state.mjs';
+import { t } from '../i18n.mjs';
+import { esc } from './misc.mjs';
+import { fmtChips } from './fmt.mjs';
+import { MSG } from '../net/messages.mjs';
+
+// Public helper used by the renderer: returns a Data URL for the
+// player or null. Considers cache + freshly assembled images.
+function _pthAvatarFor(pid) {
+  const meta = S._pthAvatarHashes[pid];
+  if (!meta) return null;
+  return S._pthDataUrls[meta.hashHex] || null;
+}
+// Expose for refreshMyAvatar (defined at module top level)
+window._pthAvatarFor = _pthAvatarFor;
+// MON avatar de SESSION — parité QML : le client officiel fige son avatar dans
+// ClientContext à la connexion (hash annoncé à l'Init, fichier renvoyé sur
+// AvatarRequest, siège local) ; un nouveau choix en cours de session ne vaut
+// qu'à la connexion suivante. S._sessAv est figé à l'envoi de l'Init
+// (msg-lobby.mjs) et effacé au reset de connexion ; hors session, c'est le
+// choix courant. Toute lecture d'AFFICHAGE de mon avatar passe par ici.
+function _myAvChoice() {
+  if (S._sessAv) return S._sessAv.choice;
+  try { return localStorage.getItem('pth_avatar'); } catch (e) { return null; }
+}
+function _myAvImg() {
+  if (S._sessAv) return S._sessAv.img || null;
+  try { return localStorage.getItem('pth_avatar_img') || null; } catch (e) { return null; }
+}
+
+// Avatar feature: returns the emoji to display for the local player,
+// or '' if there is none. Crucially treats the '__pth__' sentinel as
+// "no emoji" so the literal string never leaks into the UI as text.
+// Use this everywhere we want an avatar-as-string (player-bar text
+// fallback, waiting list, winner overlay, etc.) -- do NOT read
+// localStorage.pth_avatar directly for display purposes.
+function _myAvatarDisplay() {
+  var v = S._myAvatarCache;
+  if (!v) {
+    v = _myAvChoice() || '';
+  }
+  return (v === '__pth__' || v === '__img__') ? '' : v;
+}
+
+// Unified avatar-chip renderer for compact UI lists (waiting room,
+// winner banner, end-of-hand results table, etc.). Returns a single
+// HTML <span> -- already escaped where needed. The caller wraps it
+// in whatever container they want (no <li> / <div> assumed here).
+//
+// Decision tree per player (same priority order as the table seats):
+//   1. Real PokerTH avatar image downloaded for this pid -> <img>
+//   2. For me + I chose '__pth__' but image not downloaded ->
+//      placeholder /favicon.svg
+//   3. Emoji (mine only, from the session avatar)
+//   4. Bot fallback -> 🤖
+//   5. Mode internet (pokerth.net) sans avatar -> logo PokerTH /favicon.svg
+//   6. Final fallback (LAN / entrainement) -> first letter of the pseudo
+//
+// Args:
+//   pid        : player id (number)
+//   nick       : pseudo to use for the initial-letter fallback
+//   chipClass  : the CSS class on the wrapping <span>. Caller-defined
+//                because the 3 surfaces (wp-av, eg-winner-av,
+//                wc-player-av) have different sizes and colors.
+function _avatarChipHtml(pid, nick, chipClass) {
+  var isMe = (pid === S.myId);
+  // 1) real image?
+  var pthUrl = (typeof _pthAvatarFor === 'function') ? _pthAvatarFor(pid) : null;
+  // For me, honour the explicit choice (so picking an emoji or
+  // initial suppresses my real downloaded image on these surfaces
+  // too, same as on the table seat).
+  if (pthUrl && isMe) {
+    var myChoice = null;
+    myChoice = _myAvChoice();
+    if (myChoice !== null && myChoice !== '__pth__') pthUrl = null;
+  }
+  // 2) placeholder logo for me when I chose __pth__ but no image yet
+  if (!pthUrl && isMe) {
+    var myChoice2 = null;
+    myChoice2 = _myAvChoice();
+    if (myChoice2 === '__img__') {
+      pthUrl = _myAvImg();
+    }
+    if (!pthUrl && myChoice2 === '__pth__') pthUrl = '/holdem-practice/favicon.svg';
+  }
+  if (pthUrl) {
+    return '<span class="' + chipClass + ' has-pth-avatar">'
+         + '<img class="chip-pth-img" src="' + pthUrl + '" alt="" draggable="false">'
+         + '</span>';
+  }
+  // 3) emoji? (mine only — other players' avatars come from the server)
+  var emoji = isMe ? _myAvatarDisplay() : '';
+  if (emoji) {
+    return '<span class="' + chipClass + ' emoji-av">' + esc(emoji) + '</span>';
+  }
+  // 4) bots
+  if (window.isBot(pid)) {
+    return '<span class="' + chipClass + ' emoji-av">🤖</span>';
+  }
+  // 5) Mode internet (pokerth.net) : joueur sans avatar -> logo PokerTH,
+  // comme le siege de jeu. Les autres modes (LAN, entrainement) gardent
+  // l'initiale.
+  if (!window._offlineMode && (S._currentLoginMode === 'guest' || S._currentLoginMode === 'auth')) {
+    return '<span class="' + chipClass + ' has-pth-avatar">'
+         + '<img class="chip-pth-img" src="/holdem-practice/favicon.svg" alt="" draggable="false">'
+         + '</span>';
+  }
+  // 6) initial-letter fallback (LAN / entrainement)
+  var letter = ((nick && nick[0]) || '?').toUpperCase();
+  return '<span class="' + chipClass + ' letter">' + esc(letter) + '</span>';
+}
+// Expose so tests / debug can call it.
+window._avatarChipHtml = _avatarChipHtml;
+
+
+// Code pays ISO 3166-1 alpha-2 -> balise <img> vers un drapeau SVG
+// auto-hébergé (/holdem-practice/flags/<cc>.svg). On utilise une image plutôt que l'emoji
+// indicateur régional pour un rendu identique sur TOUS les OS (Windows
+// n'a pas les glyphes drapeau). Renvoie '' si le code est invalide.
+// `cls` : classe CSS optionnelle pour dimensionner selon le contexte.
+function _ccToFlag(cc, cls) {
+  if (!cc || typeof cc !== 'string') return '';
+  cc = cc.trim().toLowerCase();
+  if (!/^[a-z]{2}$/.test(cc)) return '';
+  return '<img class="cc-flag' + (cls ? ' ' + cls : '') + '" src="/holdem-practice/flags/' + cc
+       + '.svg" alt="' + cc.toUpperCase() + '" title="' + cc.toUpperCase()
+       + '" draggable="false" loading="lazy" onerror="this.style.display=\'none\'">';
+}
+
+// ──────────────────────────────────────────────────────────────
+// Player-info modal -- shows the local player's avatar + name,
+// plus a 'Change avatar' button that opens the avatar picker.
+// ──────────────────────────────────────────────────────────────
+
+// ── Mode fenetre generique ─────────────────────────────────────────────────
+// Au-dessus du seuil _winGate, la carte devient une vraie fenetre du lobby :
+// deplacable par son en-tete, redimensionnable, position memorisee. En
+// dessous elle reste centree. Le voile noir a disparu (CSS) : la fermeture
+// passe donc par la croix et par Echap, plus par un clic a l'exterieur.
+function _winGateOk() {
+  try { return !!(window._winGate && window._winGate() && typeof window._enableFloating === 'function'); }
+  catch (e) { return false; }
+}
+// Geometrie d'ouverture : large et centree. Calculee a chaque ouverture pour
+// suivre la taille de la fenetre du navigateur.
+// Largeur FIXE de la carte joueur en mode fenetre. La carte est une colonne
+// centree — avatar, nom, boutons pleine largeur, bloc de note — et rien la-dedans
+// ne profite d'une fenetre large : etiree, elle laissait deux grandes marges
+// vides de chaque cote et ne ressemblait plus au reste de l'interface (la meme
+// carte en modale est plafonnee a 400 px). Le seul bloc qui reclamait de la
+// largeur, les coupes de saison (tableau dix colonnes, camembert, histogramme),
+// a sa propre fenetre depuis le bouton stats — la carte ne l'heberge plus.
+// 400 px = le plafond de la version modale, et l'ordre de grandeur du dialogue
+// QML de Kai (min(parent*0.9, 420)). Seule la HAUTEUR reste ajustable.
+const PIM_WIN_W = 400;
+
+function _pimGeom() {
+  var vw = 1024, vh = 768;
+  try { vw = window.innerWidth || vw; vh = window.innerHeight || vh; } catch (e) {}
+  // Hauteur : plafond genereux, la carte defile au-dela.
+  var maxH = Math.min(1000, Math.round(vh * 0.94));
+  // Largeur bornee au viewport pour une fenetre etroite : mieux vaut une carte
+  // plus fine que debordante.
+  var w = Math.max(260, Math.min(PIM_WIN_W, vw - 16));
+  var h = Math.max(340, Math.min(maxH, Math.round(vh * 0.82)));
+  return { w: w, h: h, maxW: w, maxH: maxH,
+           left: Math.max(8, Math.round((vw - w) / 2)),
+           top:  Math.max(8, Math.round((vh - h) / 2)) };
+}
+
+function openPlayerInfoPopup(pid, autoStats) {
+  var modal = document.getElementById('player-info-modal');
+  if (!modal) return;
+  // pid omis (ou === moi) → MON profil (comportement historique : stats +
+  // changer d'avatar). Sinon → profil en LECTURE d'un adversaire.
+  var targetPid = (pid == null) ? S.myId : pid;
+  var isSelf = (targetPid === S.myId);
+  S._pimPid = targetPid;
+  var avEl    = document.getElementById('pim-avatar');
+  var nameEl  = document.getElementById('pim-name');
+  var statsEl = document.getElementById('pim-stats');
+  var infoEl  = document.getElementById('pim-info');
+  // ── Grand avatar (cercle 96px). Pour MOI : on respecte le choix local
+  //    (même ordre que la barre joueur). Pour un autre : même priorité que
+  //    les sièges (image réelle > emoji reçu > 🤖 si bot > initiale). ──
+  if (avEl) {
+    avEl.classList.remove('is-letter');
+    var url = null, emoji = null;
+    if (isSelf) {
+      var realPth = (typeof _pthAvatarFor === 'function') ? _pthAvatarFor(S.myId) : null;
+      var stored = null;
+      stored = _myAvChoice();
+      if (stored === '__pth__') {
+        url = realPth || '/holdem-practice/favicon.svg';   // vrai avatar sinon logo
+      } else if (stored === '__img__') {
+        url = _myAvImg();
+      } else if (stored && stored !== '__pth__' && stored !== '__img__') {
+        emoji = stored;
+      }
+    } else {
+      url = (typeof _pthAvatarFor === 'function') ? _pthAvatarFor(targetPid) : null;
+      if (!url) emoji = (window._offlineBotAv && window._offlineBotAv[targetPid])   // emoji des bots offline (mode entraînement), comme les sièges
+                        || (window.isBot(targetPid) ? '🤖' : '');
+    }
+    if (url) {
+      avEl.innerHTML = '<img src="' + url + '" alt="" draggable="false">';
+    } else if (emoji) {
+      avEl.textContent = emoji;
+    } else {
+      avEl.classList.add('is-letter');
+      var nm0 = isSelf ? S.myName : window.getPlayerName(targetPid);
+      avEl.textContent = (nm0 && nm0[0] ? nm0[0] : '?').toUpperCase();
+    }
+    // Cliquable (→ sélecteur d'avatar) UNIQUEMENT pour mon propre profil.
+    if (isSelf) {
+      avEl.classList.add('pim-avatar-clickable');
+      avEl.setAttribute('role', 'button');
+      avEl.setAttribute('tabindex', '0');
+      var _chTip = (typeof t === 'function') ? t('changeAvatar') : 'Change avatar';
+      avEl.title = _chTip; avEl.setAttribute('aria-label', _chTip);
+      avEl.onclick = function() { openAvatarPickerFromLobby(); };
+      avEl.onkeydown = function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAvatarPickerFromLobby(); } };
+    } else {
+      avEl.classList.remove('pim-avatar-clickable');
+      avEl.removeAttribute('role'); avEl.removeAttribute('tabindex');
+      avEl.removeAttribute('title'); avEl.removeAttribute('aria-label');
+      avEl.onclick = null; avEl.onkeydown = null;
+    }
+  }
+  if (nameEl) nameEl.textContent = (isSelf ? S.myName : window.getPlayerName(targetPid)) || '';
+  // Drapeau du pays (sous l'avatar) — code reçu via PlayerInfoReply.
+  // Surtout présent sur pokerth.net ; masqué si inconnu.
+  var flagEl = document.getElementById('pim-flag');
+  if (flagEl) {
+    var cc = S._playerCountries[targetPid];
+    var flagImg = _ccToFlag(cc, 'cc-flag-lg');
+    if (flagImg) {
+      flagEl.innerHTML = flagImg + '<span class="pim-flag-code">' + String(cc).toUpperCase() + '</span>';
+      flagEl.style.display = '';
+    } else {
+      flagEl.innerHTML = '';
+      flagEl.style.display = 'none';
+    }
+  }
+  if (isSelf) {
+    // Mon profil : stats de session locales, PUIS mes coupes pokerth.net —
+    // #pim-info est placé après #pim-stats dans le DOM, l'ordre est donc
+    // « ma partie en cours » avant « ma saison ». Vide hors réseau / invité.
+    // Les stats de session sont parties dans la fenetre de statistiques : la
+    // carte ne les rend plus du tout.
+    if (statsEl) { statsEl.style.display = 'none'; statsEl.innerHTML = ''; }
+    if (infoEl) {
+      // Mêmes infos en jeu + stats de comportement que pour un adversaire,
+      // PUIS les coupes (demande narmod 26/07 : parité self/adversaires).
+      var _selfInfo = _roleHtml(targetPid) + _inGameInfoHtml(targetPid) + _cupsBlockHtml(targetPid);
+      infoEl.innerHTML = _selfInfo;
+      infoEl.style.display = '';   // _roleHtml n'est jamais vide
+    }
+  } else {
+    // Adversaire : rôle + infos en jeu, pas de stats ni de bouton avatar.
+    if (statsEl)   { statsEl.style.display = 'none'; statsEl.innerHTML = ''; }
+    if (infoEl) {
+      infoEl.innerHTML = _otherPlayerInfoHtml(targetPid);
+      infoEl.style.display = '';
+      // Le bloc de note n'existe qu'une fois le HTML posé — câblage ici.
+      try { if (typeof window._nvWire === 'function') window._nvWire(infoEl); } catch (e) {}
+    }
+  }
+  // Stats de comportement (VPIP/PFR/AF…) : locales et légères → chargées à
+  // CHAQUE ouverture dès que le conteneur existe, self compris. Les coupes de
+  // saison (réseau pokerth.net, rallongent le popup) ne se chargent QUE sur
+  // demande explicite : le bouton de la carte ou la pastille 📊 de la liste
+  // ouvrent la fenetre de statistiques — plus jamais automatiquement depuis
+  // la table (revirement narmod 26/07).
+  if (document.getElementById('pim-stats-hud')) {
+    try { _pimLoadPlayerStats(targetPid); } catch (e) {}
+  }
+  modal.style.display = 'flex';
+  // Mode fenetre EN DERNIER : tant que la carte est vide, sa hauteur ne veut
+  // rien dire. En l'activant avant le remplissage (ce que faisait 2.1.7-web.104
+  // a 114) la fenetre s'ouvrait plus courte que son contenu et il fallait la
+  // redimensionner a la main a chaque fois.
+  _pimEnterWindowMode();
+}
+
+// Passe la carte en fenetre et l'ajuste a SON CONTENU.
+function _pimEnterWindowMode() {
+  var modal = document.getElementById('player-info-modal');
+  var card = modal && modal.querySelector('.pim-card');
+  if (!card || !_winGateOk()) return;
+  var g = _pimGeom();
+  try {
+    window._enableFloating(card, {
+      handle: document.getElementById('pim-grip'), resizable: true,
+      // minW == maxW : les poignees horizontales n'ont plus de course (celles
+      // qui ne servent qu'a la largeur sont masquees en CSS, cf. .pim-card
+      // .win-rsz-e/-w et les coins).
+      maxW: g.w, maxH: g.maxH,
+      // Zoom du contenu DESACTIVE avec la largeur figee : le facteur vaut
+      // min(l/defW, h/defH), il ne dependrait donc plus que de la hauteur — la
+      // carte aurait ecrit plus petit quand on la raccourcit, alors que sa
+      // largeur ne bouge pas. A largeur fixe, on rend au 1:1, comme la modale.
+      zoom: false, key: 'pth-pim-win2',
+      defW: g.w, defH: g.h, minW: g.w, minH: 260,
+      defLeft: g.left, defTop: g.top
+    });
+  } catch (e) { return; }
+  // Largeur imposee APRES coup : _enableFloating restaure la geometrie
+  // memorisee (pth-pim-win2) et ne re-borne que vers le BAS — une carte
+  // enregistree plus etroite par une version precedente serait restee etroite.
+  try { card.style.width = g.w + 'px'; } catch (e) {}
+  // Hauteur ajustee au contenu. La carte a overflow-y:auto, donc scrollHeight
+  // porte la totalite du contenu meme quand la fenetre est plus courte : on
+  // relache la hauteur, on mesure, puis on borne. Au-dela du plafond la carte
+  // defile, comme avant.
+  try {
+    var prev = card.style.height;
+    card.style.height = 'auto';
+    var need = card.scrollHeight;
+    card.style.height = (need > 0 ? Math.max(260, Math.min(g.maxH, need + 2)) : parseFloat(prev) || g.h) + 'px';
+  } catch (e) {}
+  // Recentrage a chaque ouverture : _restoreWin rejoue la derniere position et
+  // ignore defLeft, si bien qu'une carte deplacee une fois y restait collee.
+  if (typeof window._placeWin === 'function') {
+    try {
+      var w = card.offsetWidth || g.w, h = card.offsetHeight || g.h;
+      window._placeWin(card, Math.round((window.innerWidth - w) / 2),
+                             Math.round((window.innerHeight - h) / 2));
+    } catch (e) {}
+  }
+}
+// Bouton 📊 de la liste : ouvre le popup et charge directement les stats de
+// saison. Sans pid -> mon profil. La liste passe '' pour moi (_ppArg dans
+// renderPlayerList) : on normalise en null, mais autoStats reste VRAI dans les
+// deux cas — sinon mon propre bouton ouvrait le popup sans charger mes coupes,
+// contrairement a celui des autres joueurs (remonte narmod).
+// Ouvre la fenetre de statistiques pour un pid. Point d'entree unique du
+// bouton de la carte ET de la pastille de la liste : le nom est resolu ici,
+// jamais interpole dans un attribut HTML.
+window._pimOpenStats = function (pid) {
+  var nm = _pimNameFor(pid);
+  if (!nm || typeof window.openPlayerProfile !== 'function') return false;
+  try { window.openPlayerProfile(nm, pid); return true; } catch (e) { return false; }
+};
+
+window._plOpenStats = function (pid) {
+  // La pastille 📊 de la liste mene DIRECTEMENT aux statistiques (demande
+  // narmod 26/08) : cliquer le NOM ouvre la carte joueur, cliquer 📊 ouvre la
+  // fenetre de stats. Avant, les deux ouvraient la carte.
+  var _p = (pid == null || pid === '') ? S.myId : pid;
+  if (window._pimOpenStats(_p)) return;
+  // Repli : joueur sans nom exploitable (bot, hors reseau) -> la carte.
+  openPlayerInfoPopup((pid == null || pid === '') ? null : pid, true);
+};
+// Signaler l'avatar d'un joueur : on referme le popup profil avant d'ouvrir la
+// confirmation, sinon les deux couches se superposent (le modal de signalement
+// n'est pas empilé au-dessus du popup joueur dans l'ordre z).
+window._reportAvatar = function(pid){
+  try { closePlayerInfoPopup(); } catch (e) {}
+  try { if (window.App && typeof window.App.reportAvatar === 'function') window.App.reportAvatar(pid); } catch (e) {}
+};
+// Basculer l'ignorance d'un joueur (par nom) puis rafraîchir sièges + popup.
+window._toggleIgnore = function(pid){
+  var nm = (typeof window.getPlayerName === 'function') ? window.getPlayerName(pid) : null;
+  if (!nm) return;
+  var _willIgnore = !window._isIgnored(nm);
+  try {
+    if (window._advGet && window._advGet('confirm_social', true)) {
+      var _ik = _willIgnore ? 'ignoreConfirm' : 'unignoreConfirm';
+      var _iq = (typeof t === 'function' && t(_ik, { name: nm }) !== _ik)
+        ? t(_ik, { name: nm })
+        : (_willIgnore ? ('Ignore ' + nm + '?') : ('Stop ignoring ' + nm + '?'));
+      if (!window.confirm(_iq)) return;
+    }
+  } catch (e) {}
+  if (typeof window._setIgnoredName !== 'function') return;
+  window._setIgnoredName(nm, _willIgnore);
+  try { if (typeof window.renderIgnoredList === 'function') window.renderIgnoredList(); } catch (e) {}
+  try { if (typeof window._renderSeats === 'function') window._renderSeats(); } catch (e) {}
+  try { openPlayerInfoPopup(pid); } catch (e) {}
+};
+// « Kickban total » admin — AdminBanPlayerMessage (type 76), équivalent du
+// Lobby.adminBanPlayer du client QML. Confirmation avant envoi ; le résultat
+// revient par AdminBanPlayerAckMessage (toast, voir le switch réseau).
+window._adminBanPlayer = function (pid) {
+  var nm = (typeof window.getPlayerName === 'function') ? (window.getPlayerName(pid) || ('#' + pid)) : ('#' + pid);
+  var q = (typeof t === 'function' && t('kickbanConfirm') !== 'kickbanConfirm')
+    ? t('kickbanConfirm', { name: nm })
+    : ('Ban ' + nm + ' from the server (total kickban)?');
+  if (!window.confirm(q)) return;
+  try { window.send(MSG.buildAdminBanPlayer(pid)); } catch (e) {}
+};
+
+// Contenu du popup pour un AUTRE joueur : rôle (🤖 Bot / Invité / Enregistré
+// / Admin), puis — s'il est attablé — ses jetons / mise / statut / position
+// (pastilles D-SB-BB), et un lien vers son profil pokerth.net s'il est
+// enregistré et qu'on est bien sur pokerth.net. Tout passe par t() → traduit.
+// Bloc « coupes » (classements PokerTH / BBC / WEC) + lien profil pokerth.net.
+// Rendu pour tout joueur ENREGISTRÉ en mode réseau — y compris MOI : mon propre
+// popup n'affichait que les stats de session locales, alors que les autres
+// joueurs montraient leurs classements (remonté narmod). Chaîne vide sinon
+// (bot, invité, hors réseau).
+function _cupsBlockHtml(pid) {
+  function tt(k, fb) { var v = (typeof t === 'function') ? t(k) : null; return (v && v !== k) ? v : fb; }
+  var rg = S._playerRights[pid] || 0;
+  var modeEl = document.getElementById('login-mode');
+  var onNet = !!(modeEl && (modeEl.value === 'guest' || modeEl.value === 'auth'));
+  // MOI, en LAN / serveur prive (hors pokerth.net) : le bouton reste ouvert
+  // meme sans classements PokerTH/BBC/WEC, car c'est justement la que vivent
+  // mes stats de session/a vie et le classement familial (S._statsEligible,
+  // window._pimRenderSessionStats) — sans lui, aucun moyen de voir mon score
+  // ni de reset mes stats depuis mon avatar en LAN (remonte narmod).
+  var selfLan = (pid === S.myId) && !onNet && !!S._statsEligible;
+  if (window.isBot(pid)) return '';
+  if (!onNet && !selfLan) return '';
+  if (!selfLan && rg !== 2 && rg !== 3) return '';
+  var nm = _pimNameFor(pid);
+  if (!nm) return '';
+  // Toutes les statistiques vivent dans LEUR fenetre (demande narmod 26/08) :
+  // la carte joueur garde l'identite (avatar, drapeau, role, infos en jeu) et
+  // les actions, la fenetre porte les coupes des trois classements et, pour
+  // moi, mes stats de session. Un seul bouton mene a l'une comme a l'autre —
+  // il y en avait deux qui ouvraient des vues largement redondantes.
+  // UN SEUL bouton : « Voir les coupes » menait exactement au meme endroit
+  // (_pimOpenStats), la fenetre de statistiques contenant deja les coupes des
+  // trois classements. Deux libelles pour une seule destination n'apportaient
+  // rien (constat narmod 26/08).
+  // On ne passe QUE le pid dans l'attribut. JSON.stringify(nm) y injectait des
+  // guillemets doubles, qui fermaient l'attribut onclick lui-meme : le
+  // navigateur ne gardait que « window.openPlayerProfile( » et le clic ne
+  // faisait rien. Le nom est resolu cote JS, ou aucun echappement n'est requis.
+  var html = '<button type="button" class="pim-cups-btn" onclick="window._pimOpenStats(' + pid + ')">\uD83D\uDCCA '
+       + esc(tt('ppOpen', 'Player profile')) + '</button>';
+  // Lien pokerth.net : sans objet en LAN / serveur prive (pas de compte, pas
+  // de coupes) — seulement affiche quand on est reellement sur pokerth.net.
+  if (onNet) {
+    html += '<a class="pim-profile-link" href="https://www.pokerth.net/app.php/player?u='
+       + encodeURIComponent(nm) + '" target="_blank" rel="noopener noreferrer">'
+       + esc(tt('piViewProfile', 'View pokerth.net profile')) + '</a>';
+  }
+  return html;
+}
+
+// Nom à interroger sur pokerth.net. Pour moi, S.myName fait foi : je ne suis pas
+// forcément présent dans la liste des joueurs consultée par getPlayerName.
+function _pimNameFor(pid) {
+  if (pid === S.myId && S.myName) return S.myName;
+  try { return window.getPlayerName(pid) || null; } catch (e) { return null; }
+}
+
+// Bloc « infos en jeu » (stack, mise, statut, pastilles D/SB/BB) + conteneur
+// des stats de comportement (#pim-stats-hud, rempli en asynchrone par
+// _pimLoadPlayerStats). PARTAGÉ self/adversaires : ma propre box doit montrer
+// les mêmes stats en cours que celles des autres (demande narmod 26/07).
+// Rien si le joueur n'est pas attablé (lobby) — dégrade proprement.
+function _inGameInfoHtml(pid) {
+  function tt(k, fb) { var v = (typeof t === 'function') ? t(k) : null; return (v && v !== k) ? v : fb; }
+  var html = '';
+  var sd = S.seatData[pid];
+  if (sd) {
+    var rows = '';
+    function row(k, v) {
+      return '<div class="pim-ig-row"><span class="pim-ig-k">' + esc(k) + '</span>'
+           + '<span class="pim-ig-v">' + esc(v) + '</span></div>';
+    }
+    if (sd.money != null && sd.money >= 0) rows += row(tt('stack', 'Stack'), fmtChips(sd.money));
+    if (sd.bet) rows += row(tt('piBet', 'Bet'), fmtChips(sd.bet));
+    // Statut (un seul, par ordre de priorité).
+    var st = '';
+    if (sd.folded) st = tt('piStatusFolded', 'Folded');
+    else if (sd.active === false) st = (sd.money != null && sd.money <= 0) ? tt('piStatusEliminated', 'Eliminated') : tt('piStatusSittingOut', 'Sitting out');
+    else if (sd.money === 0) st = tt('piStatusAllIn', 'All-in');
+    else if (pid === S.turnPid) st = tt('piStatusToAct', 'To act');
+    // Position : pastilles universelles D / SB / BB (pas de traduction).
+    var pos = '';
+    if (pid === S.dealerPid)  pos += '<span class="pim-pos pim-pos-d">D</span>';
+    if (pid === S._lastSbPid) pos += '<span class="pim-pos pim-pos-sb">SB</span>';
+    if (pid === S._lastBbPid) pos += '<span class="pim-pos pim-pos-bb">BB</span>';
+    var foot = '';
+    if (st)  foot += '<span class="pim-status">' + esc(st) + '</span>';
+    if (pos) foot += '<span class="pim-pos-wrap">' + pos + '</span>';
+    html += '<div class="pim-ig">' + rows + (foot ? ('<div class="pim-ig-foot">' + foot + '</div>') : '') + '</div>';
+  }
+  // Stats de comportement (rempli en asynchrone par _pimLoadPlayerStats).
+  html += '<div id="pim-stats-hud" class="pim-stat-box" data-pid="' + pid + '" style="display:none"></div>';
+  return html;
+}
+
+// Rôle du joueur (Bot / Admin / Enregistré / Invité). EXTRAIT ici parce qu'il
+// n'était rendu que pour les adversaires : sur mon propre profil la ligne
+// manquait purement et simplement, alors que rien ne le justifie — je peux
+// vouloir vérifier que le serveur m'a bien reconnu comme enregistré ou admin
+// (remonté narmod 26/08). Les deux branches passent désormais par ici, elles
+// ne peuvent donc plus diverger.
+function _roleHtml(pid) {
+  function tt(k, fb) { var v = (typeof t === 'function') ? t(k) : null; return (v && v !== k) ? v : fb; }
+  var roleTxt;
+  if (window.isBot(pid)) {
+    roleTxt = '🤖 ' + tt('piRoleBot', 'Bot');
+  } else {
+    var rg = S._playerRights[pid] || 0;
+    roleTxt = (rg === 3) ? tt('piRoleAdmin', 'Admin')
+            : (rg === 2) ? tt('piRoleRegistered', 'Registered')
+            : tt('piRoleGuest', 'Guest');
+  }
+  return '<div class="pim-role">' + esc(roleTxt) + '</div>';
+}
+
+function _otherPlayerInfoHtml(pid) {
+  function tt(k, fb) { var v = (typeof t === 'function') ? t(k) : null; return (v && v !== k) ? v : fb; }
+  var html = _roleHtml(pid);
+  // Parité QML PlayerListItem (stable, 27/08/2026) : « spielt gerade in … ».
+  // Le QML affiche la phrase au survol du nom (desktop) et dans la zone
+  // dépliée (tactile) ; côté web le tooltip vit sur le nom de la liste des
+  // joueurs et SA version tactile est cette ligne-ci — le popup joueur est
+  // notre équivalent du dépliage. Jamais pour les bots (offline) : la notion
+  // « au lobby / en partie » n'existe pas pour eux.
+  try {
+    if (!window.isBot(pid)) {
+      var _act = (typeof window._playerActivity === 'function') ? window._playerActivity(pid) : '';
+      var _anm = window.getPlayerName(pid) || ('#' + pid);
+      var _aline = _act
+        ? tt('plPlayingInFull', '%1 is playing in "%2".').replace('%1', _anm).replace('%2', _act)
+        : tt('plNotPlayingFull', '%1 is not playing at the moment.').replace('%1', _anm);
+      html += '<div class="pim-activity" style="margin-top:6px;font-size:12px;opacity:.75;text-align:center">' + esc(_aline) + '</div>';
+    }
+  } catch (e) {}
+  // Infos en jeu + conteneur des stats de comportement (partagés avec la
+  // self-box, cf. _inGameInfoHtml).
+  html += _inGameInfoHtml(pid);
+  // Coupes + lien profil pokerth.net (identique pour moi et pour les autres).
+  html += _cupsBlockHtml(pid);
+  // Note libre + étiquette de couleur (extra web, modules/notes). Uniquement
+  // sur un ADVERSAIRE : se noter soi-même n'a pas de sens, et la self-box
+  // partage ce chemin de rendu. Les bots y ont droit — en entraînement, c'est
+  // justement là qu'on apprend à lire un adversaire.
+  // A spectator does the one thing the card is for: read who this is. Notes,
+  // ignore, avatar report and kickban all act on a session they are not part
+  // of — /live gives them even less than a guest has in the full client.
+  const _readOnly = !!window.LIVE_MODE;
+  try {
+    if (!_readOnly && typeof window._nvBlockHtml === 'function') {
+      html += window._nvBlockHtml(window.getPlayerName(pid));
+    }
+  } catch (e) {}
+  var _ignNm = window.getPlayerName(pid);
+  if (!_readOnly) html += '<button type="button" class="pim-ignore-btn" onclick="window._toggleIgnore(' + pid + ')" '
+        + 'style="display:block;width:100%;margin-top:10px;padding:8px 0;border:1px solid var(--border-hi,rgba(200,168,74,.4));border-radius:8px;cursor:pointer;background:transparent;color:var(--text,#eff1f5);font-weight:600">'
+        + (window._isIgnored(_ignNm) ? '🔔 ' + esc(tt('piUnignore', 'Unignore')) : '🔕 ' + esc(tt('piIgnore', 'Ignore'))) + '</button>';
+  // Signaler un avatar inapproprié — parité GamePlayerBox.qml (entrée
+  // « Report inappropriate avatar »). Mêmes gardes que le client officiel :
+  // jamais sur soi, jamais sur un bot, et seulement si le joueur a réellement
+  // un avatar (le QML teste seatData.avatar, nous la présence du hash reçu
+  // avec le PlayerInfo — c'est la même condition vue du protocole). Le QML
+  // réserve son menu contextuel au desktop ; ici l'action vit dans le popup
+  // joueur, donc elle reste accessible au doigt.
+  // Invites exclus (parite QML canReportAvatar, upstream 04f5839).
+  if (!_readOnly && !window.isBot(pid) && pid !== S.myId && !(typeof window._amMyPlayerGuest === 'function' && window._amMyPlayerGuest()) && S._pthAvatarHashes[pid] && S._pthAvatarHashes[pid].hashHex) {
+    html += '<button type="button" class="pim-report-avatar-btn" onclick="window._reportAvatar(' + pid + ')" '
+          + 'style="display:block;width:100%;margin-top:8px;padding:8px 0;border:1px solid var(--border-hi,rgba(200,168,74,.4));border-radius:8px;cursor:pointer;background:transparent;color:var(--text,#eff1f5);font-weight:600">'
+          + '\uD83D\uDEA9 ' + esc(tt('piReportAvatar', 'Report avatar')) + '</button>';
+  }
+  // Kickban total — visible UNIQUEMENT si JE suis admin pokerth.net
+  // (playerRights=3), jamais sur soi ni sur un bot. Marteau (gavel), comme
+  // le PlayerListItem du client QML officiel.
+  if (!_readOnly && !window.isBot(pid) && pid !== S.myId && (S._playerRights[S.myId] || 0) === 3) {
+    html += '<button type="button" class="pim-kickban-btn" onclick="window._adminBanPlayer(' + pid + ')" '
+          + 'style="display:block;width:100%;margin-top:8px;padding:8px 0;border:1px solid var(--danger,#e05050);border-radius:8px;cursor:pointer;background:transparent;color:var(--danger,#e05050);font-weight:600">'
+          + '🔨 ' + esc(tt('piKickban', 'Total kickban')) + '</button>';
+  }
+  return html;
+}
+
+// Bloc stats du popup de profil — mêmes onglets que le panneau en jeu :
+// SESSION (toujours) / TOTAL (à vie, + bouton reset). Alimente l'onglet de
+// premier niveau "Local / Entrainement" de la fenetre "Profil du joueur"
+// (openPlayerProfile, pokerth-client.html) — TOUJOURS visible, aux cotes de
+// "LAN" (qui porte en plus le Classement familial) et de "Coupes" (demande
+// narmod 11/09 : les deux, Local/Entrainement et LAN, restent affiches
+// ensemble, DEPUIS N'IMPORTE QUEL MODE — y compris pour consulter/reinitialiser
+// — pas seulement depuis le mode auquel ils correspondent). TOTAL lit ici
+// TOUJOURS le store d'entrainement (pth_life_offline, explicite), jamais
+// celui du mode de connexion courant : _statsBodyLife('pth_life_offline').
+// Réutilise _statsBodySession / _statsBodyLife pour rester strictement
+// identique au jeu (y compris le reset).
+function _pimSetTab(tab) { S._pimTab = tab; _renderProfileStats(S._pimStatsBox); }
+
+// Rendu des stats de session DANS la fenetre de statistiques. Appele par
+// openPlayerProfile ; le conteneur est memorise pour que les onglets
+// (Session / A vie) repeignent le bon element.
+window._pimRenderSessionStats = function (containerId) {
+  S._pimStatsBox = containerId;
+  if (!S._pimTab) S._pimTab = 'session';
+  _renderProfileStats(containerId);
+};
+
+function _renderProfileStats(boxId) {
+  var box = document.getElementById(boxId || S._pimStatsBox || 'pim-stats');
+  if (!box) return;
+  function tb(id, label) {
+    return '<button class="stats-tab'+(S._pimTab===id?' active':'')+'" onclick="window._pimSetTab(\''+id+'\')">'+label+'</button>';
+  }
+  var tabs = '<div class="stats-tabs">'+tb('session',t('statTabSession'))+tb('life',t('statTabLife'))+'</div>';
+  var body = (S._pimTab === 'life') ? window._statsBodyLife('pth_life_offline') : window._statsBodySession();
+  box.innerHTML = tabs + body;
+  if (window._offlineMode && typeof window._achMountBadge === 'function') { try { window._achMountBadge(box, 'profile'); } catch (e) {} }
+}
+
+// ── Pane LAN de la fenetre "Profil du joueur" ──────────────────────────────
+// Memes stats que Local/Entrainement, mais lisant TOUJOURS le store LAN/
+// serveur prive explicite (pth_life, jamais celui du mode courant), PLUS un
+// 3e sous-onglet Classement (le classement familial complet, /stats — sans
+// mode-gating cote lecture : renderBoard() interroge le proxy quel que soit
+// le mode de connexion actuel). Les 3 sous-categories restent TOUJOURS
+// visibles, consultables ET reinitialisables depuis n'importe quel mode
+// (demande narmod 11/09). Etat de sous-onglet independant (S._pimLanTab) :
+// ouvrir l'un des deux onglets de premier niveau ne doit pas faire perdre la
+// position de l'autre.
+function _pimSetLanTab(tab) { S._pimLanTab = tab; _renderLanProfileStats(S._pimLanStatsBox); }
+
+window._pimRenderLanStats = function (containerId) {
+  S._pimLanStatsBox = containerId;
+  if (!S._pimLanTab) S._pimLanTab = 'session';
+  _renderLanProfileStats(containerId);
+};
+
+function _renderLanProfileStats(boxId) {
+  var box = document.getElementById(boxId || S._pimLanStatsBox);
+  if (!box) return;
+  function tb(id, label) {
+    return '<button class="stats-tab'+(S._pimLanTab===id?' active':'')+'" onclick="window._pimSetLanTab(\''+id+'\')">'+label+'</button>';
+  }
+  var tabs = '<div class="stats-tabs">'+tb('session',t('statTabSession'))+tb('life',t('statTabLife'))+tb('board',t('statTabBoard'))+'</div>';
+  var body;
+  if (S._pimLanTab === 'life')       body = window._statsBodyLife(window._lifeLanKey ? window._lifeLanKey() : 'pth_life');
+  else if (S._pimLanTab === 'board') body = '<div id="pp-lan-board-body" class="stats-body"><div class="stat-empty">…</div></div>';
+  else                              body = window._statsBodySession();
+  box.innerHTML = tabs + body;
+  if (S._pimLanTab === 'board') window.renderBoard('pp-lan-board-body');
+  if (window._offlineMode && typeof window._achMountBadge === 'function') { try { window._achMountBadge(box, 'profile'); } catch (e) {} }
+}
+
+function closePlayerInfoPopup() {
+  var modal = document.getElementById('player-info-modal');
+  if (!modal) return;
+  // La note se sauve en différé pendant la frappe : on force l'écriture avant
+  // de fermer, sinon la dernière phrase tapée disparaît avec la fenêtre.
+  try { if (typeof window._nvFlush === 'function') window._nvFlush(); } catch (e) {}
+  var card = modal.querySelector('.pim-card');
+  if (card && card.classList.contains('floating-win') && typeof window._disableFloating === 'function') {
+    try { window._disableFloating(card); } catch (e) {}
+  }
+  modal.style.display = 'none';
+}
+// Echap ferme, puisqu'il n'y a plus de voile a cliquer.
+if (typeof document !== 'undefined') {
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var m = document.getElementById('player-info-modal');
+    if (m && m.style.display && m.style.display !== 'none') closePlayerInfoPopup();
+  });
+}
+
+// Coupes à la demande : appelé par le bouton « Voir les coupes » du popup.
+// Masque le bouton et lance le chargement (3 requêtes /api/player) une seule
+// fois, sur action explicite — jamais en automatique à l'ouverture.
+// ── Stats de comportement d'un adversaire (VPIP / PFR / AF / ...) ─────────
+// Donnees fournies par handlog.mjs (window._playerStatsFor), independamment
+// du HUD flottant : le bloc s'affiche meme HUD desactive.
+//
+// Rendu en DEUX TEMPS : _otherPlayerInfoHtml pose un conteneur vide, puis
+// _pimLoadPlayerStats le remplit quand le calcul (IndexedDB, asynchrone) est
+// termine. Le bloc reste masque si le suivi est desactive, si le joueur n'a
+// aucune main enregistree, ou tant que les droits serveur sont inconnus
+// (rights === 0) — afficher une portee complete puis basculer en portee
+// session sous les yeux de l'utilisateur serait trompeur.
+var _PIM_STAT_ROWS = [
+  ['vpip', 'VPIP'], ['pfr', 'PFR'], ['af', 'AF'],
+  ['three_bet', '3B'], ['cbet', 'CB'], ['fold_to_3bet', 'F3B'],
+  ['fold_to_cbet', 'FCB'], ['wtsd', 'WTSD'], ['wsd', 'W$SD'],
+  ['won', 'Won', 'hlWon'], ['allin', 'All-in'],
+];
+
+function _pimStatFmt(id, v) {
+  if (v == null) return '\u2013';
+  if (id === 'af') return v === 'inf' ? '\u221e' : String(v);
+  if (id === 'allin') return String(v);
+  return v + '%';
+}
+
+function _pimRenderPlayerStats(pid) {
+  var box = document.getElementById('pim-stats-hud');
+  if (!box) return;
+  var res = null;
+  try {
+    if (typeof window._playerStatsFor === 'function') res = window._playerStatsFor(_pimNameFor(pid));
+  } catch (e) {}
+  if (!res || !res.stats) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  function tt(k, fb) { var v = (typeof t === 'function') ? t(k) : null; return (v && v !== k) ? v : fb; }
+  var s = res.stats, rows = '', i, id, lbl, key;
+  for (i = 0; i < _PIM_STAT_ROWS.length; i++) {
+    id = _PIM_STAT_ROWS[i][0]; lbl = _PIM_STAT_ROWS[i][1]; key = _PIM_STAT_ROWS[i][2];
+    // Meme colorisation par seuils que le HUD (vert -> rouge) : c'est elle qui
+    // rend la valeur lisible d'un coup d'oeil, pas le simple chiffre.
+    var col = '';
+    try { if (typeof window._statColor === 'function') col = window._statColor(id, s[id]) || ''; } catch (e) {}
+    rows += '<span class="pim-stat"><i>' + esc(key ? tt(key, lbl) : lbl) + '</i>'
+          + '<b' + (col ? ' style="color:' + col + '"' : '') + '>'
+          + esc(_pimStatFmt(id, s[id])) + '</b></span>';
+  }
+  // Tendance : VPIP/AF de la fenetre courte vs la moyenne globale du joueur.
+  var trend = '';
+  if (s.recent && s.hands >= res.trendMinBase && typeof window._statsTrendArrow === 'function') {
+    var cell = function (cid, clbl) {
+      return '<span class="pim-t-cell"><i>' + clbl + '</i><b>' + esc(_pimStatFmt(cid, s.recent[cid])) + '</b>'
+           + '<u>' + esc(window._statsTrendArrow(cid, s.recent[cid], s[cid])) + '</u></span>';
+    };
+    trend = '<div class="pim-trend" title="' + esc(res.recentWindow + ' ' + tt('hlHandPlur', 'hands')) + '">'
+          + '<span class="pim-t-lbl">' + esc(tt('hlTrend', 'Trend')) + '</span>'
+          + cell('vpip', 'VPIP') + cell('af', 'AF') + '</div>';
+  }
+  var scopeTag = (res.scope === 'session')
+    ? '<span class="pim-stat-scope">' + esc(tt('hlScopeSession', 'session')) + '</span>' : '';
+  var handsTxt = s.hands + ' ' + tt(s.hands === 1 ? 'hlHandSing' : 'hlHandPlur', s.hands === 1 ? 'hand' : 'hands');
+  box.innerHTML = '<div class="pim-stat-head">'
+      + '<span class="pim-stat-title">' + esc(tt('hlStatsTitle', 'Stats')) + '</span>' + scopeTag
+      + '<span class="pim-stat-hands">' + esc(handsTxt) + '</span></div>'
+    + '<div class="pim-stat-grid">' + rows + '</div>' + trend;
+  box.style.display = '';
+}
+
+function _pimLoadPlayerStats(pid) {
+  _pimRenderPlayerStats(pid); // immediat si le cache est deja chaud
+  if (typeof window._statsEnsure !== 'function') return;
+  Promise.resolve(window._statsEnsure()).catch(function () {}).then(function () {
+    // Le popup a pu etre ferme, ou rouvert sur un AUTRE joueur, entre-temps.
+    var box = document.getElementById('pim-stats-hud');
+    if (box && String(box.getAttribute('data-pid')) === String(pid)) _pimRenderPlayerStats(pid);
+  });
+}
+window._pimLoadPlayerStats = _pimLoadPlayerStats;
+
+
+// ──────────────────────────────────────────────────────────────
+// Open the existing avatar-popup as a floating modal, from the
+// lobby (i.e. from inside the player-info modal). Difference vs
+// the connect-screen behaviour: we add .avatar-popup-as-modal so
+// the CSS positions it fixed/centered with a backdrop, and we
+// hook a one-shot click handler to close everything once the
+// user picks an avatar.
+// ──────────────────────────────────────────────────────────────
+// Track where the popup originally lived so we can put it back when
+// the user is done. The popup is statically defined inside #s-connect
+// (so the connect-screen avatar trigger can use it in flow), but when
+// we open it from the lobby #s-connect is display:none which would
+// hide the popup along with all its other descendants. So we move
+// the popup to <body> while showing it as a modal, then move it back.
+
+function openAvatarPickerFromLobby(opts) {
+  var picker = document.getElementById('avatar-popup');
+  if (!picker) return;
+  // Remember the original location so closeAvatarPickerFromLobby
+  // can put the popup back exactly where it was.
+  if (!S._avatarPopupOrigParent) {
+    S._avatarPopupOrigParent = picker.parentNode;
+    S._avatarPopupOrigNextSibling = picker.nextSibling;
+  }
+  // Detach + re-attach to body so the parent's display:none can't
+  // hide us. We do this every open in case the DOM was changed by
+  // something else in between.
+  if (picker.parentNode !== document.body) {
+    document.body.appendChild(picker);
+  }
+  // A close still fading out (pthMotion.pop) finishes now, before reopening.
+  try { if (picker._pthClosing) picker._pthClosing(); } catch (e) {}
+  picker.classList.add('avatar-popup-as-modal');
+  picker.style.display = 'block';
+  try { if (window.pthMotion) window.pthMotion.pop(picker, true, '.avp-header, .avp-cats, .avp-grid'); } catch (e) {}
+  // Apply the default/saved emoji category so the grid is filtered
+  // (otherwise every category's emojis would show at once on first
+  // open from the lobby). avpApplyDefaultCat is defined in the HTML
+  // <head> script; guard in case of load-order differences.
+  try { if (typeof window.avpApplyDefaultCat === 'function') window.avpApplyDefaultCat(); } catch(e) {}
+  // Close-on-backdrop: a click on the popup background (NOT on any
+  // child like the avatar buttons or the header) closes the picker.
+  S._avatarPickerBackdropHandler = function(e) {
+    if (e.target === picker) {
+      closeAvatarPickerFromLobby();
+    }
+  };
+  picker.addEventListener('click', S._avatarPickerBackdropHandler);
+  // When the user picks an avatar, the existing selectAvatarPopup()
+  // (attached as an inline onclick on each .avp-btn) sets the popup's
+  // inline display:'none'. We piggy-back on that to also strip the
+  // modal class and put the popup back in its original place. Capture
+  // phase so we run before the inline onclick's bubble phase. We do NOT
+  // use once:true: a click on a category tab (.avp-cat) or the header
+  // would consume the one-shot handler (it fires, finds no .avp-btn, and
+  // returns) — then the real avatar click would no longer close the
+  // popup. Instead the handler stays until an actual .avp-btn is picked;
+  // closeAvatarPickerFromLobby() removes it on every close path.
+  S._avatarPickerBtnHandler = function(e) {
+    var btn = e.target.closest('.avp-btn');
+    if (!btn) return;
+    // Let the inline onclick run first (it saves + closes), then
+    // we clean up and refresh on the next tick.
+    setTimeout(function() {
+      closeAvatarPickerFromLobby();
+      // Depuis le lobby : rouvrir la fiche joueur + rafraîchir la pastille.
+      // Depuis le login (opts.onPicked fourni) : ne rien rouvrir de lobby.
+      if (opts && typeof opts.onPicked === 'function') { opts.onPicked(); }
+      else { openPlayerInfoPopup(); window.updateLobbyPill(); }
+    }, 0);
+  };
+  picker.addEventListener('click', S._avatarPickerBtnHandler, { capture: true });
+}
+
+function closeAvatarPickerFromLobby() {
+  var picker = document.getElementById('avatar-popup');
+  if (!picker) return;
+  // Fade out first (pthMotion.pop), then the usual close. A picker already
+  // hidden (an avatar was just picked: selectAvatarPopup hid it) closes at once.
+  var visible = picker.style.display !== 'none' && picker.classList.contains('avatar-popup-as-modal');
+  if (visible && window.pthMotion && !picker._pthClosing && !window.pthMotion.off()) {
+    var finish = function () { if (picker._pthClosing !== finish) return; picker._pthClosing = null; try { window.pthMotion.stop(picker); } catch (e) {} _closeAvatarPickerNow(picker); };
+    picker._pthClosing = finish;
+    window.pthMotion.pop(picker, false, '.avp-header, .avp-cats, .avp-grid', finish);
+    return;
+  }
+  if (picker._pthClosing) { var f = picker._pthClosing; f(); return; }
+  _closeAvatarPickerNow(picker);
+}
+function _closeAvatarPickerNow(picker) {
+  picker.classList.remove('avatar-popup-as-modal');
+  picker.style.display = 'none';
+  // Detach our backdrop handler. The btn handler is once:true, but it is
+  // only consumed when an avatar is actually clicked — closing via the
+  // backdrop (or the X) leaves it attached, so repeated open/close cycles
+  // would stack dangling capture handlers. Remove it here too (matching the
+  // capture flag it was added with). removeEventListener is a no-op if it
+  // already fired.
+  if (S._avatarPickerBackdropHandler) {
+    picker.removeEventListener('click', S._avatarPickerBackdropHandler);
+    S._avatarPickerBackdropHandler = null;
+  }
+  if (S._avatarPickerBtnHandler) {
+    picker.removeEventListener('click', S._avatarPickerBtnHandler, { capture: true });
+    S._avatarPickerBtnHandler = null;
+  }
+  // Put the popup back into its original parent so the connect
+  // screen's static layout keeps working.
+  if (S._avatarPopupOrigParent && picker.parentNode !== S._avatarPopupOrigParent) {
+    if (S._avatarPopupOrigNextSibling && S._avatarPopupOrigNextSibling.parentNode === S._avatarPopupOrigParent) {
+      S._avatarPopupOrigParent.insertBefore(picker, S._avatarPopupOrigNextSibling);
+    } else {
+      S._avatarPopupOrigParent.appendChild(picker);
+    }
+  }
+}
+
+export { _pthAvatarFor, _myAvChoice, _myAvImg, _myAvatarDisplay, _avatarChipHtml,
+         _ccToFlag, openPlayerInfoPopup, _otherPlayerInfoHtml, _cupsBlockHtml, _pimSetTab,
+         _renderProfileStats, _pimSetLanTab, _renderLanProfileStats, closePlayerInfoPopup,
+         _pimLoadPlayerStats, _pimRenderPlayerStats,
+         openAvatarPickerFromLobby, closeAvatarPickerFromLobby };
+
+for (const [k, v] of Object.entries({ _pthAvatarFor, _myAvChoice, _myAvImg,
+  _myAvatarDisplay, _avatarChipHtml, _ccToFlag, openPlayerInfoPopup,
+  _otherPlayerInfoHtml, _cupsBlockHtml, _pimSetTab, _renderProfileStats,
+  _pimSetLanTab, _renderLanProfileStats, closePlayerInfoPopup,
+  _pimLoadPlayerStats, _pimRenderPlayerStats,
+  openAvatarPickerFromLobby, closeAvatarPickerFromLobby }))
+  window[k] = v;

@@ -1,0 +1,940 @@
+// ═══════════════════════════════════════════════════════════════════
+// Handlers réseau — lobby & connexion (Announce/InitAck/AuthChallenge,
+// Error, ReportGameAck, AdminBanPlayerAck, AdminGlobalNoticeAck, Statistics, PlayerList,
+// PlayerInfoReply, GameList*) — chantier ESM #9g-C3.
+// Chaque fonction = le corps EXACT de l'ancienne case de handleMsg,
+// signature (sub). handleMsg n'ayant AUCUN code après son switch,
+// chaque `break` de niveau case est devenu `return;` (sémantique
+// identique, y compris les sorties anticipées d'InitAck).
+// Adaptations (comptées et prouvées par AST) : imports t, setStatus/
+// send/_endConnecting/show (session), renderGames/updateLobbyStatsBar/
+// renderGameInfoPanel (lobby), addChat (chat), PTHCrypto (crypto),
+// _pthCacheGet (avatar-cache), updateLobbyPill (game-info),
+// _lifeSeedFromServer (stats) ; window.* pour les globaux du script
+// (showToast, _showBanner/_hideBanner, _startIpBlockCountdown,
+// renderPlayersList, _lang, getPlayerName) et les fonctions restées
+// dans l'IIFE (_defaultNameForMode, _tableHasPid, renderWaitingPanel
+// — ponts ajoutés) ; `App.*` conservé nu (const lexical global du
+// script, résolu à l'exécution) ; $( réécrit.
+// ═══════════════════════════════════════════════════════════════════
+import { S } from '../game/state.mjs';
+import { Proto } from './proto.mjs';
+import { MSG } from './messages.mjs';
+import { PTHCrypto } from './crypto.mjs';
+import { send, setStatus, show, _endConnecting } from './session.mjs';
+import { _pthCacheGet } from './avatar-cache.mjs';
+import { t } from '../i18n.mjs';
+import { addChat } from '../ui/chat.mjs';
+import { namesMatch, scheduleInviteResolve } from './invite-link.mjs';
+import { renderGames, updateLobbyStatsBar, renderGameInfoPanel } from '../ui/lobby.mjs';
+import { updateLobbyPill } from '../ui/game-info.mjs';
+import { _lifeSeedFromServer } from '../game/stats.mjs';
+
+const T = MSG.T;
+
+function onAnnounce(sub) {
+    // An Announce opens a brand-new server session: the server is about to
+    // resend the COMPLETE PlayerList (one "new" notification per online
+    // player). Pids from the previous session never receive a "left"
+    // notification (they left while we were gone, or were our own old
+    // session), so keeping them inflated the online count after a timeout
+    // + reconnect (sp0ck, /live, 27/09/2026). A transparent proxy rebind
+    // sends no Announce and keeps the set, which is still valid there.
+    S._lobbyPids.clear();
+    S._lobbyPlayerCount = 0;
+    S._pendingNameRequests.clear();
+    // Same for authentication: a new server session is not logged in until
+    // its InitAck. Packets such as ResetTimeout sent before that would be
+    // refused (Init state). A transparent rebind keeps the flag (connect()).
+    S._wasAuthenticated = false;
+    const pv    = Proto.sub(sub, 1); // protocolVersion (réseau, ex: 5.1)
+    const gv    = Proto.sub(sub, 2); // latestGameVersion (appli, ex: 2.0)
+    const stype = Proto.u32(sub, 4); // 0=LAN, 1=NoAuth, 2=Auth
+    const np    = Proto.u32(sub, 5);
+    const pMaj  = Proto.u32(pv, 1), pMin = Proto.u32(pv, 2);
+    const gMaj  = Proto.u32(gv, 1), gMin = Proto.u32(gv, 2);
+    // The server's own version: the connection probe is only sent to 2.1+
+    // (net/watchdog.mjs).
+    S._srvVer = ((gMaj & 0xff) << 8) | (gMin & 0xff);
+
+    const loginMode = document.getElementById('login-mode') ? document.getElementById('login-mode').value : 'guest';
+    // Mot de passe de COMPTE optionnel sur serveur dédié / LAN : s'il est
+    // saisi (champ user-pass de la roue crantée), on bascule en
+    // authenticatedLogin pour l'envoyer dans clientUserData — permet à un
+    // serveur dédié avec gestion de comptes d'authentifier l'utilisateur.
+    // Vide ⇒ on garde le login normal du mode (unauthenticated / guest).
+    const userAcctPass = ((loginMode === 'unauth' || loginMode === 'lan') && document.getElementById('user-pass'))
+      ? document.getElementById('user-pass').value.trim() : '';
+    const useAcctAuth = !!userAcctPass;
+    if (stype === 2 && loginMode !== 'guest' && loginMode !== 'auth' && !useAcctAuth) {
+      setStatus(t('serverRequiresAuth'), 'err');
+      S._intentionalDisconnect = true; // fatal config error — don't auto-retry
+      S.ws.close(); return;
+    }
+    let loginType;
+    // Mode invité pokerth.net : VRAI guestLogin (0) — le serveur attribue les
+    // droits invité (badge « Invité » correct partout). Conséquence assumée,
+    // identique au client officiel : chat lobby/partie/PM rejetés (ChatReject
+    // déjà géré → note discrète), parties Normal uniquement. Les réactions
+    // web↔web survivent via le canal REACT: du proxy.
+    if (loginMode === 'guest') loginType = 0;
+    else if (loginMode === 'unauth') loginType = 2;
+    else if (loginMode === 'auth') loginType = 1;
+    else loginType = 0; // lan
+    if (useAcctAuth) loginType = 1; // mot de passe utilisateur saisi ⇒ authenticatedLogin
+    // Track lifetime stats / leaderboard only on the private server & LAN
+    // (private server / LAN). pokerth.net modes (guest + registered) are never
+    // recorded — strangers and throwaway guest names would pollute it.
+    // Stats scope by mode:
+    //  • training (vs bots) → own persistent "à vie" store (pth_life_offline),
+    //    NEVER pushed to the shared family leaderboard;
+    //  • private server / LAN → shared leaderboard (push + seed) as before;
+    //  • pokerth.net direct → session only.
+    S._statsOffline  = !!window._offlineMode;
+    S._boardEligible = !S._statsOffline && (loginMode === 'unauth' || loginMode === 'lan');
+    S._statsEligible = S._statsOffline || S._boardEligible;
+    if (S._boardEligible) _lifeSeedFromServer();
+    const typeLabel = ['LAN','Internet (no-auth)','Internet (auth)'][stype] || 'Serveur';
+    setStatus(t('connectingPlayers', { type: typeLabel, ver: pMaj + '.' + pMin, n: np }));
+    S.lastMajor = pMaj; S.lastMinor = pMin; S.lastLoginType = loginType;
+    const authPass = (loginType === 1)
+      ? (useAcctAuth ? userAcctPass : (document.getElementById('pass') ? document.getElementById('pass').value : ''))
+      : null;
+    // Compte authentifié : pokerth.net chiffre nos cartes (encryptedCards)
+    // avec une clé dérivée du mot de passe. On la calcule maintenant
+    // (SHA-1 pur-JS, SYNCHRONE) — donc prête à coup sûr avant le 1er
+    // HandStart (plus de course async) et fonctionnelle même hors contexte
+    // sécurisé (http local). Sinon on efface toute clé résiduelle
+    // (passage auth → invité sans recharger la page).
+    S._cardKey = null; S._cardIV = null;
+    if (loginType === 1 && authPass) {
+      try {
+        const _kv = PTHCrypto.deriveKeyIv(new TextEncoder().encode(authPass));
+        S._cardKey = _kv.key; S._cardIV = _kv.iv;
+      } catch (e) { S._cardKey = null; S._cardIV = null; }
+    }
+    // Pré-armer le rejoin AVANT d'envoyer Init : si une partie récente est
+    // mémorisée (pth_resume, même pseudo, < 5 min), on note _pendingRejoin
+    // pour que le handler Error(4) « pseudo pris » RÉCLAME le siège (attend
+    // que le fantôme tombe, réessaie le même pseudo) au lieu de renommer.
+    // Couvre le rechargement complet ; la coupure transitoire est déjà
+    // couverte par _armRejoin().
+    if (!S._pendingRejoin && !window._offlineMode) {
+      try {
+        var _rs0 = JSON.parse(localStorage.getItem('pth_resume') || 'null');
+        if (_rs0 && _rs0.n === S.myName && (Date.now() - _rs0.t) < 5 * 60 * 1000) {
+          S._pendingRejoin = _rs0.g;
+          S._pendingRejoinSpec = !!_rs0.s;   // spectateur → re-spectate au resume
+        }
+      } catch (e) {}
+    }
+    // Previous session GUID, replayed as InitMessage.myLastSessionId. Source:
+    // the GUID our seat carries, kept in pth_resume (k) -- it survives a full
+    // reload / iOS cold start, and during a rejoin it is still the previous
+    // GUID, which the server checks until it performs the rejoin at the next
+    // hand (see seatGuidForJoin in msg-game-join.mjs). Same 5 min window as
+    // the rejoin marker, matching the server's
+    // SERVER_OFFLINE_RECONNECT_TIMEOUT_SEC = 300. No marker (not seated, or no
+    // storage): the GUID of the session that just dropped, as before.
+    let _lastSid = null;
+    if (!window._offlineMode) {
+      try {
+        var _rk = JSON.parse(localStorage.getItem('pth_resume') || 'null');
+        if (_rk && _rk.k && _rk.n === S.myName && (Date.now() - _rk.t) < 5 * 60 * 1000)
+          _lastSid = MSG.b64ToBytes(_rk.k);
+      } catch (e) { _lastSid = null; }
+    }
+    if (!_lastSid) _lastSid = S._sessionGuid || null;
+    // Mot de passe serveur (optionnel, masqué sous « plus d'options »).
+    // Trimmé ; vide → null donc omis de l'InitMessage. Lu directement ici
+    // (comme authPass) pour couvrir aussi les reconnexions automatiques.
+    const srvPass = (document.getElementById('server-pass') ? document.getElementById('server-pass').value.trim() : '') || null;
+    // Avatar de SESSION (parité QML) : le client officiel fige son avatar dans
+    // ClientContext à la connexion — hash annoncé ici, fichier renvoyé sur
+    // AvatarRequest, siège local. On fige de même le choix courant et ses
+    // octets d'upload : buildInit lit window._pthMyUpload dans ce même tour,
+    // onAvatarRequest et l'affichage de MON avatar lisent l'instantané. Un
+    // nouveau choix en cours de session vaudra à la connexion suivante.
+    try {
+      var _sc = null, _si = null;
+      try { _sc = localStorage.getItem('pth_avatar'); _si = localStorage.getItem('pth_avatar_img'); } catch (e) {}
+      S._sessAv = { choice: _sc, img: _si || null };
+      S._sessUpload = window._pthMyUpload || null;
+      S._myAvatarCache = (_sc && _sc !== '__pth__' && _sc !== '__img__') ? _sc : '';
+    } catch (e) {}
+    send(MSG.buildInit(S.myName, pMaj, pMin, loginType, authPass, srvPass, _lastSid));
+    return;
+}
+
+function onInitAck(sub) {
+    // Parite QML 2.1.5 (LobbyHandler::setSession) : le chat lobby appartient a
+    // la CONNEXION, pas a l'onglet. Sans ce vidage, l'historique de la session
+    // precedente reste affiche apres un nouveau login -- avec un autre pseudo,
+    // voire sur un autre serveur.
+    // Place AVANT la branche de reprise automatique : QML vide sans exception a
+    // chaque nouvelle session (MSG_SOCK_INIT_DONE), y compris apres une coupure.
+    // Une reprise avec delai de grace reste une nouvelle session cote serveur --
+    // on s'aligne, meme si cela coute le fil du chat apres un trou reseau.
+    try {
+      if (window._advGet ? window._advGet('chat_clear_login', true) : true)
+        window.clearChatPanel && window.clearChatPanel('lobby');
+    } catch (e) {}
+    // Parite QML 9bccf3a (setSession) : le carnet de messages prives
+    // appartient a un compte ; tant que le login de CETTE session n'est pas
+    // confirme (PlayerInfoReply sur soi-meme, plus bas), personne n'est
+    // connu — boite vide, rien n'est persiste.
+    try { window._pmSetOwner && window._pmSetOwner(''); } catch (e) {}
+    // Same for a table invitation still on screen: it was sent to the
+    // previous session's playerId (parity upstream 52661f2, setSession).
+    try { window._inviteDrop && window._inviteDrop(false); } catch (e) {}
+    S._wasAuthenticated = true;
+    // Statistics: a guest or an account logged in on pokerth.net (a total per day).
+    try { var _lm = S._currentLoginMode; if (_lm === 'guest' || _lm === 'auth') window._pthCountLogin && window._pthCountLogin(_lm); } catch (e) {}
+    S._lastConnectFailed = false; // connexion réussie
+    _endConnecting();           // login OK → unlock the connect button
+    S._reconnectAttempts = 0;
+    S.myId = Proto.u32(sub, 2);
+    // GUID of THIS session (InitAck field 1), kept for the next InitMessage.
+    // Only written to pth_resume once we are actually seated (onJoinGameAck) --
+    // same timing as the QML client, where WriteSessionGuidToFile() is called
+    // from ClientThread::InitGame() rather than at login.
+    // Training: the local fake server's GUID means nothing to a real server.
+    // Kept, it was replayed as myLastSessionId by the next LAN / Internet
+    // login and the server closed the session on the spot (invalid size) --
+    // only a page reload cleared it.
+    S._sessionGuid = window._offlineMode ? null : Proto.raw(sub, 1);
+    // Nouvelle session : le compteur de battements repart de zero. Il peut
+    // s'agir d'un AUTRE serveur (2.0.x, sans heartbeat) — garder l'ancien
+    // compte armerait le watchdog lobby sur un serveur muet, qui se ferait alors
+    // reconnecter en boucle dans un lobby calme.
+    S._hbCount = 0; S._hbLast = 0; S._hbInterval = 0;
+    S._rejoinNickRetries = 0;
+    _nickBusyReset();           // pseudo accepté → compteur de réessais à zéro
+    // Demander NOTRE PROPRE PlayerInfo : le serveur n'écho pas toujours
+    // notre arrivée dans PlayerList, donc sans ça on n'apprend jamais le
+    // hash de notre avatar pokerth.net. Le handler PlayerInfoReply
+    // déclenche ensuite le téléchargement/cache/rendu de l'avatar (et
+    // confirme notre pseudo canonique). Inoffensif pour invité/LAN
+    // (la réponse n'aura simplement pas de champ avatar).
+    try {
+      S._pendingNameRequests.add(S.myId);
+      const _selfReq = Proto.encode([[1, 0, S.myId]]);
+      send(Proto.encode([[1, 0, T.PlayerInfoRequest], [19, 2, _selfReq]]));
+    } catch (e) {}
+    // Auto-rejoin the table we dropped from, if any. Source: the in-memory
+    // flag (transient drop) or a recent persisted marker (full reload).
+    // Same nickname required so we don't hijack another player's seat.
+    // The server has the final word: InitAck.rejoinGameId (field 4) is only
+    // sent when a seat really is waiting for us -- same name, same GUID, cash
+    // still above zero (serverlobbythread.cpp:2755). It outranks our local
+    // markers, which cannot know whether the seat was invalidated meanwhile.
+    var _srvRt = Proto.u32orNull(sub, 4);
+    if (_srvRt) S._pendingRejoinSpec = false;   // a real seat is never a spectator slot
+    var _rt = _srvRt || S._pendingRejoin;
+    if (window._offlineMode) {
+      // Entraînement : aucune partie ne survit au rechargement — on ignore et
+      // on purge tout marqueur de reprise (y compris hérité d'avant correctif).
+      _rt = 0; S._pendingRejoin = 0;
+      try { localStorage.removeItem('pth_resume'); } catch (e) {}
+    }
+    if (!_rt) {
+      try {
+        var _rs = JSON.parse(localStorage.getItem('pth_resume') || 'null');
+        if (_rs && _rs.n === S.myName && (Date.now() - _rs.t) < 5 * 60 * 1000) {
+          _rt = _rs.g;
+          S._pendingRejoinSpec = !!_rs.s;
+        }
+      } catch (e) {}
+    }
+    if (_rt) {
+      S._pendingRejoin = _rt;
+      window._showBanner(t('rejoinInProgress'));
+      if (S._pendingRejoinSpec) {
+        // On était SPECTATEUR : aucun siège à réclamer côté serveur.
+        // RejoinExistingGame ferait retirer la session (RemovedFromGame
+        // reason=0 onRequest → éjection lobby, bug observé sur pokerth.net).
+        // → re-spectater proprement, même chemin que spectateGame().
+        S._amSpectator = true;
+        try { window.updateSpectatorStrip && window.updateSpectatorStrip(); } catch (e) {}
+        try { send(MSG.buildJoinGame(_rt, true)); } catch (e) {}
+      } else {
+        try { send(MSG.buildRejoinGame(_rt)); } catch (e) {}
+      }
+      return;   // JoinGameAck → game screen; JoinGameFailed → lobby fallback
+    }
+    updateLobbyPill();
+    App._resetGameState();   // ensure a clean lobby baseline (no-op on first connect)
+    // Entrainement : pas d'etape lobby — le formulaire « Creer une table »
+    // s'ouvre directement (le lobby reste accessible via Annuler/retour).
+    if (window._offlineMode) { try { App.openCreatePage(); } catch (eOc) { show('s-lobby'); } }
+    else show('s-lobby');
+    // Guest notice (operator-authored, /app-config guestNotice): shown on
+    // EVERY pokerth.net guest connection once the lobby is on screen. The
+    // auto-rejoin branch above returns before this point, so a transient
+    // reconnection straight back to a table does not re-open the modal.
+    try { if (window.maybeShowGuestNotice) window.maybeShowGuestNotice(); } catch (eGw) {}
+    // Registered-account notice: same trigger, gated on the auth login mode
+    // inside the function itself (at most one of the two modals can match).
+    try { if (window.maybeShowAuthNotice) window.maybeShowAuthNotice(); } catch (eAw) {}
+    // LAN / dedicated server notice: same trigger, gated on LAN/dedicated mode
+    // inside the function itself (see window._amLanMode).
+    try { if (window.maybeShowLanNotice) window.maybeShowLanNotice(); } catch (eLw) {}
+    // Notifications: no longer asked cold on entering the lobby (browsers
+    // silence such prompts or hold them against the site) — the player asks
+    // with « 🔔 Notify me » in the waiting room (modules/ui/wait-alert.mjs, web.270).
+    const cfName = document.getElementById('cf-name');
+    if (cfName) cfName.value = window._defaultNameForMode();  // nom par défaut (mode courant / admin)
+    return;
+}
+
+function onAuthChallenge(sub) {
+    // Legacy auth (SCRAM temporarily disabled): empty AuthClientResponse.
+    setStatus(t('verifyingAccount'));
+    send(MSG.buildAuthResponse());
+    return;
+}
+
+function onReportGameAck(sub) {
+    // ReportGameAckMessage : reportedGameId=1, reportGameResult=2
+    // (0 accepté · 1 déjà signalé · 2 invalide/erreur)
+    var _rgRes = Proto.u32(sub, 2);
+    if (_rgRes === 0) {
+      window.showToast(t('reportGameAccepted'), { icon: '\u2713' });
+    } else if (_rgRes === 1) {
+      window.showToast(t('reportGameDup'), { icon: '\u2139' });
+    } else {
+      window.showToast(t('reportGameError'), { tone: 'error', icon: '\u2715' });
+    }
+    return;
+}
+
+// ReportAvatarAckMessage : reportedPlayerId=1, reportAvatarResult=2
+// (0 accepté · 1 déjà signalé · 2 invalide). Mêmes trois issues que le
+// signalement de nom de partie, d'où des toasts construits à l'identique.
+function onReportAvatarAck(sub) {
+    var _raRes = Proto.u32(sub, 2);
+    if (_raRes === 0) {
+      window.showToast(t('reportAvatarAccepted'), { icon: '\u2713' });
+    } else if (_raRes === 1) {
+      window.showToast(t('reportAvatarDup'), { icon: '\u2139' });
+    } else {
+      window.showToast(t('reportAvatarError'), { tone: 'error', icon: '\u2715' });
+    }
+    return;
+}
+
+function onAdminBanPlayerAck(sub) {
+    // AdminBanPlayerAckMessage : banPlayerId=1, banPlayerResult=2
+    // (0 accepté · 1 en attente · 2 pas de BDD · 3 erreur BDD · 4 invalide)
+    var _kbPid = Proto.u32(sub, 1);
+    var _kbRes = Proto.u32(sub, 2);
+    var _kbNm = window.getPlayerName(_kbPid) || ('#' + _kbPid);
+    if (_kbRes === 0 || _kbRes === 1) {
+      window.showToast((typeof t === 'function' && t('kickbanOk') !== 'kickbanOk')
+        ? t('kickbanOk', { name: _kbNm }) : ('Kickban: ' + _kbNm));
+    } else {
+      window.showToast(((typeof t === 'function' && t('kickbanFail') !== 'kickbanFail')
+        ? t('kickbanFail') : 'Kickban failed') + ' (' + _kbRes + ')',
+        { tone: 'error', icon: '\u2715' });
+    }
+    return;
+}
+
+function onAdminGlobalNoticeAck(sub) {
+    // AdminGlobalNoticeAckMessage : globalNoticeResult=1
+    // (0 globalNoticeAccepted · 1 globalNoticeInvalid — droits manquants ou
+    // texte vide). La durchsage elle-même revient ensuite comme n'importe
+    // quel broadcast (chatType 3), déjà géré par onChat().
+    var _gnRes = Proto.u32(sub, 1);
+    if (_gnRes === 0) {
+      window.showToast(t('gnSent'));
+    } else {
+      window.showToast(t('gnRejected'), { tone: 'error', icon: '\u2715' });
+    }
+    return;
+}
+
+// ── « Pseudo déjà utilisé » (Error 4) : réessai automatique borné ──────
+// Après une coupure en jeu, le pseudo reste tenu quelques dizaines de
+// secondes par la session précédente : grâce du proxy (SESSION_GRACE_MS,
+// 120 s) en mode « via proxy », ou socket morte pas encore détectée par le
+// serveur PokerTH en Direct WS. Renommer le joueur lui ferait PERDRE son
+// siège, et enchaîner les Init ferait bloquer l'IP (initBlocked, err 7).
+// → on retente le MÊME pseudo, au plus NICK_BUSY_MAX fois, espacées de
+// NICK_BUSY_DELAY_MS (≫ MIN_CONN_GAP 5 s du proxy), avec compte à rebours
+// dans la zone de statut. `pth_resume` / `_pendingRejoin` sont CONSERVÉS :
+// dès que le fantôme tombe, l'InitAck enchaîne sur buildRejoinGame et le
+// siège est récupéré. Désactivable : option avancée `nick_retry`.
+const NICK_BUSY_MAX = 3;
+const NICK_BUSY_DELAY_MS = 30000;
+
+function _nickBusyClear() {
+  try { clearTimeout(window._nickBusyTimer); } catch (e) {}
+  try { clearInterval(window._nickBusyTick); } catch (e) {}
+  window._nickBusyTimer = null; window._nickBusyTick = null;
+}
+
+function _nickBusyReset() { _nickBusyClear(); S._nickBusyTries = 0; }
+
+function _nickBusyRetry() {
+  _nickBusyClear();
+  // Changement de pseudo → nouveau budget de tentatives.
+  if (S._nickBusyName !== S.myName) { S._nickBusyTries = 0; S._nickBusyName = S.myName; }
+  var _optOn = true;
+  try { if (typeof window._advGet === 'function') _optOn = window._advGet('nick_retry', true); } catch (e) {}
+  var _ipBlocked = !!(S._ipBlockUntil && Date.now() < S._ipBlockUntil);
+  if (!_optOn || window._offlineMode || _ipBlocked) {
+    // Réessai désactivé (ou IP déjà en pénitence) : on informe et on s'arrête,
+    // mais on garde le marqueur de reprise — une reconnexion manuelle plus
+    // tard doit encore pouvoir réclamer le siège.
+    setStatus(t('nickInUseStop', { name: S.myName }), 'err');
+    return;
+  }
+  if ((S._nickBusyTries | 0) >= NICK_BUSY_MAX) {
+    // Budget épuisé : le siège n'est plus réclamable de façon fiable, on purge
+    // le marqueur pour ne pas re-rejoindre une table qu'on a fini par quitter.
+    S._nickBusyTries = 0; S._pendingRejoin = 0;
+    try { localStorage.removeItem('pth_resume'); } catch (e) {}
+    setStatus(t('nickInUseGiveUp', { name: S.myName, max: NICK_BUSY_MAX }), 'err');
+    return;
+  }
+  S._nickBusyTries = (S._nickBusyTries | 0) + 1;
+  var _left = Math.round(NICK_BUSY_DELAY_MS / 1000);
+  var _paint = function () {
+    setStatus(t('nickInUseRetry', { name: S.myName, n: _left,
+      a: S._nickBusyTries, max: NICK_BUSY_MAX }), 'err');
+    if (_left > 0) _left--;
+  };
+  _paint();
+  window._nickBusyTick = setInterval(_paint, 1000);
+  window._nickBusyTimer = setTimeout(function () {
+    _nickBusyClear();
+    S._nickBusyAuto = true;          // ce connect() est le nôtre : garder le compteur
+    try { App.connect(); } catch (e) {}
+  }, NICK_BUSY_DELAY_MS);
+}
+// Appelé au début de App.connect(). Une relance AUTO garde le compteur (sinon
+// le budget ne s'épuiserait jamais) ; une reprise MANUELLE le remet à zéro —
+// l'utilisateur qui reclique a droit à un budget neuf.
+window._nickBusyCancel = function () {
+  _nickBusyClear();
+  if (S._nickBusyAuto) { S._nickBusyAuto = false; return; }
+  S._nickBusyTries = 0;
+};
+
+function onError(sub) {
+    _endConnecting();   // server rejected → free the button now
+    S._lastConnectFailed = true;
+    // Enum ErrorReason COMPLET de pokerth.proto (parité QML 2.1.6,
+    // networkErrorMessage) : les codes 8–14 arrivaient jusqu'ici en
+    // « code N » nu — notamment 11 (kick), 12 (ban) et 14 (timeout de
+    // session AFK), devenus visibles depuis que le client respecte le
+    // kick AFK. Tous tombent dans la branche else → message nommé, pas
+    // de reconnexion automatique (rejet serveur, pas panne de transport).
+    const codes = {1:t('connErrVersion'),2:t('connErrFull'),3:t('connErrAuth'),
+      4:t('connErrNickTaken'),5:t('connErrNickInvalid'),6:t('connErrMaintenance'),7:t('connErrBlocked'),
+      8:t('connErrAvatarSize'),9:t('connErrPacket'),10:t('connErrState'),
+      11:t('connErrKicked'),12:t('connErrBanned'),13:t('connErrAccBlocked'),14:t('connErrIdle')};
+    const r = Proto.u32(sub, 1);
+    if (r === 3) {
+      // initAuthFailure: login/password rejected by server
+      setStatus(t('errBadCreds'), 'err');
+      S._intentionalDisconnect = true; // bad credentials — retrying won't help
+      S.ws.close(); return;
+    }
+    if (r === 7) {
+      S._intentionalDisconnect = true;
+      S._wasAuthenticated = false;
+      window._hideBanner();
+      S._ipBlockUntil = Date.now() + 1 * 60 * 1000; // 1 minute (was 5 — server usually clears earlier)
+      window._startIpBlockCountdown();
+      setStatus(t('ipBlockedRetry'), 'err'); return;
+    }
+    // ── Fallback LAN / serveur dédié : serveur d'avant CLIENT_TYPE_WEB ──
+    // Un pokerth-server ancien (< 2.1.8, sans le commit upstream c7e2959)
+    // ne connait pas le type client 0x03 et repond initVersionNotSupported
+    // alors que protocole et build sont compatibles. On retente UNE fois
+    // l'Init en s'annoncant CLIENT_TYPE_QT_WIDGET (drapeau lu par buildInit,
+    // colle a la page -- un rechargement le remet a zero). pokerth.net
+    // (guest/auth) n'est jamais concerne : la un code 1 est un vrai rejet.
+    if (r === 1) {
+      const _lmFb = document.getElementById('login-mode') ? document.getElementById('login-mode').value : '';
+      if ((_lmFb === 'lan' || _lmFb === 'unauth') && !window._forceQtWidgetInit) {
+        window._forceQtWidgetInit = true;   // buildInit basculera sur 0x01
+        S._intentionalDisconnect = true;    // coupe le backoff generique de onclose
+        S._lastConnectFailed = false;       // ne pas armer le rate-limiter de connect()
+        setStatus(t('reconnInProgress'));
+        setTimeout(function(){ try { App.connect(); } catch (e) {} }, 1000);
+        return;
+      }
+    }
+    if (r === 4) {
+      // Pseudo déjà utilisé sur le serveur : c'est presque toujours NOTRE
+      // propre session précédente qui n'est pas encore retombée. On ne renomme
+      // JAMAIS (l'ancien code passait à « narmod_211 » → siège abandonné) et on
+      // n'enchaîne pas les Init à l'aveugle (tempête de connexions → IP
+      // bloquée). Le réessai borné ci-dessous garde le pseudo ET le marqueur de
+      // reprise, pour que le siège soit réclamé dès que le fantôme tombe.
+      S._rejoinNickRetries = 0;
+      S._wasAuthenticated = false;
+      S._intentionalDisconnect = true;   // neutralise le backoff générique de onclose
+      window._hideBanner();
+      _nickBusyRetry();
+    } else {
+      // Parité QML 2.1.6 (isRecoverableTransportError) : un REJET serveur
+      // (version incompatible, serveur plein, pseudo invalide, maintenance,
+      // kick, ban, compte bloqué, timeout de session) n'est pas une panne de
+      // transport. Retenter automatiquement rejouerait le même Init refusé en
+      // boucle — et déclencherait le rate-limit de login du serveur
+      // (token-bucket par IP). On coupe donc le backoff de onclose ;
+      // l'utilisateur relance à la main (connect() remet le drapeau à false).
+      //
+      // EXCEPTION (web.22, diagnostic confirmé capture narmod 09/08) :
+      // 9 invalidPacket / 10 invalidState ne sont JAMAIS des rejets de
+      // session chez nous. Cas réel observé : bascule 5G→Wi-Fi, le rebind
+      // sid du proxy rattache la session VIVANTE, puis le client renvoie un
+      // Init redondant → le serveur répond invalidState et la partie
+      // continue normalement. Le web.21 ne couvrait que « pendant la reco » —
+      // or le premier message reçu remet _reconnectAttempts à 0 AVANT que ce
+      // rejet n'arrive : le drapeau se rearmait et la coupure SUIVANTE ne se
+      // reconnectait plus jamais. Donc pour 9/10 : pas de drapeau, et pas de
+      // toast anxiogène en pleine partie (« versions différentes ? » alors
+      // que tout va bien) — statut seulement si pas encore authentifié
+      // (vrai échec de connexion initiale), sinon simple console.warn.
+      // Les vrais rejets (8, 11–14, inconnus, et 1–7 plus haut) terminent
+      // la reco, comme le QML (isRecoverableTransportError).
+      var _protoErr = (r === 9 || r === 10);
+      if (!_protoErr) S._intentionalDisconnect = true;
+      // Le motif est memorise pour ws.onclose : un rejet recu APRES le login
+      // (kick, ban, timeout de session) ne changeait aucun ecran — le lobby
+      // restait affiche, fige, et setStatus ecrivait sur l'ecran de connexion
+      // que personne ne voyait. Parite QML : retour a l'ecran de connexion et
+      // fenetre « Connexion perdue » portant ce motif.
+      if (!_protoErr) S._connLostReason = codes[r] || ('code ' + r);
+      if (_protoErr && S._wasAuthenticated) {
+        try { console.warn('[NET] ErrorMessage ' + r + ' (' + (codes[r] || '?') + ') ignoré — session authentifiée active (Init redondant post-rebind ?)'); } catch (e) {}
+      } else {
+        setStatus(t('errGeneric', { code: codes[r] || ('code ' + r) }), 'err');
+      }
+    }
+    return;
+}
+
+function onPlayerList(sub) {
+    // PlayerListMessage: playerId=1, notification=2 (0=new, 1=left)
+    const _pid_pl = Proto.u32(sub, 1);
+    const notif = Proto.u32(sub, 2);
+    if (notif === 0) {
+      S._lobbyPlayerCount++;
+      S._lobbyPids.add(_pid_pl);
+      // Fetch the player's name so the players-online panel can
+      // show something better than '#42'. Skip if we already
+      // know the name OR have already asked.
+      if (!S.players[_pid_pl] && !S._pendingNameRequests.has(_pid_pl)) {
+        S._pendingNameRequests.add(_pid_pl);
+        try {
+          const req = Proto.encode([[1,0,_pid_pl]]);
+          send(Proto.encode([[1,0,T.PlayerInfoRequest],[19,2,req]]));
+        } catch(e) {}
+      }
+    } else if (notif === 1) {
+      S._lobbyPlayerCount = Math.max(0, S._lobbyPlayerCount - 1);
+      S._lobbyPids.delete(_pid_pl);
+      S._pendingNameRequests.delete(_pid_pl);
+    }
+    if (!S._hasStatistics) {
+      document.getElementById('h-players').textContent = S._lobbyPlayerCount + ' ' + t('playersOnline');
+    }
+    // Refresh the panel if it's open.
+    var _pp = document.getElementById('players-panel');
+    if (_pp && _pp.style.display !== 'none' && typeof window.renderPlayersList === 'function') window.renderPlayersList();
+    return;
+}
+
+function onStatistics(sub) {
+    // Every StatisticsMessage doubles as the server's heartbeat (one every 45 s
+    // to every session). Record it: in a quiet lobby it is the only traffic
+    // there is, so it is what tells the RX watchdog whether the socket is still
+    // alive -- and, by its mere presence, whether this server sends heartbeats
+    // at all. Measured rather than assumed, so the client follows the server if
+    // the interval ever changes.
+    const _now = Date.now();
+    if (S._hbLast) S._hbInterval = _now - S._hbLast;
+    S._hbLast = _now;
+    S._hbCount++;
+    const arr = sub[1] || [];
+    for (const d of arr) {
+      const s = Proto.decode(d);
+      if (Proto.u32(s,1) === 1) {
+        // Server-authoritative count. Mark the flag so PlayerList
+        // updates stop overriding the header pill from below.
+        S._hasStatistics = true;
+        S._lobbyPlayerCount = Proto.u32(s,2);
+        document.getElementById('h-players').textContent = S._lobbyPlayerCount + ' ' + t('playersOnline');
+        updateLobbyStatsBar();
+      }
+    }
+    return;
+}
+
+function onPlayerInfoReply(sub) {
+    const pid = Proto.u32(sub, 1);
+    // Answer to the connection probe (net/watchdog.mjs, id 0xFFFFFFFF): its
+    // only purpose was to make the server speak; the frame already counted.
+    if (pid === 0xFFFFFFFF) return;
+    const info = Proto.sub(sub, 2);
+    const name = Proto.str(info, 1);
+    if (name) S.players[pid] = name;
+    // Premier point apres le login ou notre pseudo canonique est confirme :
+    // c'est le carnet de messages prives de CE compte qui s'applique
+    // (parite QML 9bccf3a : setMyPlayerInfo -> setPrivateMessageOwner).
+    if (pid === S.myId && name) {
+      try { window._pmSetOwner && window._pmSetOwner(name); } catch (e) {}
+    }
+    // Rafraîchir un panneau « joueurs à cette table » en attente de ce pseudo.
+    if (name && S._openTables.size && window._tableHasPid(pid)) renderGames();
+    // Code pays (champ 4, optionnel) — présent surtout sur pokerth.net.
+    var cc = Proto.str(info, 4);
+    if (cc) S._playerCountries[pid] = cc.toUpperCase();
+    // Ma propre fiche est arrivée (avec ou sans pays) : l'Aide de l'As peut dire
+    // comment obtenir un drapeau s'il manque (guide lobby-flag, web.66).
+    if (pid === S.myId) S._myInfoLoaded = true;
+    // Panneau « Infos de partie » : rafraîchir si ce joueur appartient à la
+    // partie sélectionnée (nom/drapeau qui arrivent en asynchrone).
+    if ((name || cc) && S._selectedGame != null) {
+      var _selG = S.games[S._selectedGame];
+      if (_selG && _selG.seats && _selG.seats.indexOf(pid) !== -1) {
+        try { renderGameInfoPanel(S._selectedGame); } catch(e) {}
+      }
+    }
+    // Droits (champ 3) : 1=invité, 2=enregistré, 3=admin. Sert à ne
+    // rendre cliquables que les joueurs ayant un compte pokerth.net.
+    var rights = Proto.u32(info, 3);
+    if (rights) {
+      S._playerRights[pid] = rights;
+      // Mes propres droits viennent d'arriver → (dé)masquer la durchsage.
+      if (pid === S.myId && typeof window._syncGlobalNoticeBtn === 'function') {
+        try { window._syncGlobalNoticeBtn(); } catch (_e) {}
+      }
+      // …et repeindre la liste des joueurs : la pastille marteau (kickban) et
+      // la largeur de la colonne d'actions dependent de MES droits, qui
+      // arrivent apres le premier rendu de la liste.
+      if (pid === S.myId && typeof window.renderPlayersList === 'function') {
+        try { window.renderPlayersList(); } catch (_e2) {}
+      }
+    }
+    S._pendingNameRequests.delete(pid); // got the reply, free for retry if needed
+    // ── Step 1 (PokerTH avatar): peek for the optional AvatarData
+    // sub-message (field 5). Present only for registered players who
+    // uploaded an avatar on pokerth.net. We just log + memoize.
+    // The download (AvatarRequest/Header/Data/End) is intentionally
+    // NOT done yet -- this step exists to verify hashes are
+    // detected correctly before we add anything else.
+    const avData = Proto.sub(info, 5);
+    if (avData && Object.keys(avData).length > 0) {
+      const avType = Proto.u32(avData, 1); // 1=PNG, 2=JPG, 3=GIF
+      const avHashBytes = Proto.raw(avData, 2);
+      if (avHashBytes && avHashBytes.length > 0) {
+        // Convert bytes to lower-case hex string for logging.
+        let hashHex = '';
+        for (let i = 0; i < avHashBytes.length; i++) {
+          const h = avHashBytes[i].toString(16);
+          hashHex += (h.length === 1 ? '0' : '') + h;
+        }
+        S._pthAvatarHashes[pid] = { type: avType, hashHex: hashHex };
+        // ── Step 3: cache hit?
+        // If the same hash has been downloaded in a previous session
+        // and is still in localStorage, restore it immediately --
+        // no network round-trip, no AvatarRequest, no waiting.
+        if (!S._pthAvatarsByHash[hashHex] && !S._pthDataUrls[hashHex]) {
+          const cached = _pthCacheGet(hashHex);
+          if (cached) {
+            S._pthAvatarsByHash[hashHex] = {
+              status: 'done', type: cached.type, expectedSize: 0,
+              chunks: [], received: 0,
+            };
+            S._pthDataUrls[hashHex] = cached.dataUrl;
+            // Re-render so the seat picks up the image right away.
+            if (typeof window._renderSeats === 'function') window._renderSeats();
+            if (typeof window.refreshMyAvatar === 'function') window.refreshMyAvatar();
+            if (S._openTables.size) renderGames();
+            // Panneau « Infos de partie » : l'image restaurée du cache doit y
+            // apparaître aussi (la liste des joueurs est repeinte plus bas).
+            if (S._selectedGame != null) { try { renderGameInfoPanel(S._selectedGame); } catch (e) {} }
+          }
+        }
+        // ── Step 2: cache miss -> kick off an AvatarRequest. Dedup
+        // by hash so two players sharing an avatar download once.
+        if (!S._pthAvatarsByHash[hashHex]) {
+          S._pthAvatarsByHash[hashHex] = {
+            status: 'pending', // 'pending' | 'done' | 'unknown' | 'error'
+            type:   avType,
+            expectedSize: 0,   // filled by AvatarHeader
+            chunks: [],        // Uint8Array[] -- joined at AvatarEnd
+            received: 0,       // running total bytes
+          };
+          const reqId = S._pthNextAvatarReqId++;
+          S._pthAvatarReqIdToHash[reqId] = hashHex;
+          const reqMsg = Proto.encode([
+            [1, 0, reqId],
+            [2, 2, avHashBytes],
+          ]);
+          send(Proto.encode([[1, 0, T.AvatarRequest], [8, 2, reqMsg]]));
+        } else if (S._pthAvatarsByHash[hashHex].status === 'done') {
+          // Already cached this session -- nothing to do, the
+          // re-render path will pick it up.
+        }
+      }
+    }
+    // If the waiting panel is visible, update it so the new pseudo
+    // appears in place of the temporary '#<pid>' placeholder. On teste gId
+    // (posé au JoinGameAck) et non amInGame (true seulement au démarrage).
+    if (!S._gameStarted && S.gId) window.renderWaitingPanel();
+    // Same idea for the lobby players panel.
+    var _pp2 = document.getElementById('players-panel');
+    if (_pp2 && _pp2.style.display !== 'none' && typeof window.renderPlayersList === 'function') window.renderPlayersList();
+    return;
+}
+
+// Rafraîchit la liste des joueurs du lobby si elle est ouverte. L'activité
+// d'un joueur (colonne « In game » et filtre « idle ») dérive de
+// S.games[..].seats et du mode de la partie : tout handler qui les modifie
+// doit repeindre la liste, sinon elle reste figée jusqu'à un autre événement
+// (rapport forum : joueur listé idle mais présent dans une partie, ou sorti
+// d'une partie mais absent de la vue idle).
+// GameListAdminChangedMessage (type 17) : l'admin d'une table a change
+// (depart de l'ancien hote). On met a jour games[id].admin puis on
+// re-rend liste + panneaux pour deplacer le badge « Admin » (parite QML
+// lobbyhandler UpdateGameInfoAdmin / gameListRevision).
+function onGameListAdminChanged(sub) {
+    const id  = Proto.u32(sub, 1);
+    const pid = Proto.u32(sub, 2);
+    const g = S.games[id];
+    if (g) g.admin = pid;
+    if (S._openTables.size || S._selectedGame === id) renderGames();
+    _refreshPlayersPanelIfOpen();
+    // Ma table en attente : le panneau central (Infos) porte la liste.
+    try { if (S.gId === id && !S._gameStarted && window.renderWaitingPanel) window.renderWaitingPanel(); } catch (e) {}
+    return;
+}
+
+function _refreshPlayersPanelIfOpen() {
+  const _pp = document.getElementById('players-panel');
+  if (_pp && _pp.style.display !== 'none' && typeof window.renderPlayersList === 'function') window.renderPlayersList();
+}
+
+function onGameListNew(sub) {
+    const id   = Proto.u32(sub, 1);
+    const mode = Proto.u32(sub, 2); // 1=created,2=started,3=closed
+    const priv = Proto.u32(sub, 3);
+    const gi   = Proto.sub(sub, 6); // NetGameInfo
+    // GameListNewMessage.adminPlayerId (champ 5) : admin de table (createur/
+    // hote). Sert au badge « Admin » des listes de joueurs (parite QML
+    // GameAdminBadge, commit upstream 12f5eaf du 09/08/2026).
+    const gadm = Proto.u32(sub, 5) || 0;
+    const name = Proto.str(gi, 1) || `#${id}`;
+    // Mascotte (extension web) : une table vient d'être créée → l'As la
+    // montre du doigt (le module ignore la rafale de la liste initiale).
+    if (mode === 1) { try { if (typeof window.mascotReact === 'function') window.mascotReact('table'); } catch (e) {} }
+    const gtype= Proto.u32(gi, 2);
+    const maxp = Proto.u32(gi, 3);
+
+    // Liste des joueurs présents (champ 4 = playerIds). Selon l'état de la
+    // partie, le serveur l'envoie tantôt en varints PACKED (un buffer),
+    // tantôt en REPEATED (une valeur par occurrence). On gère les deux,
+    // sinon les sièges restaient vides pour certaines parties (panneau
+    // « Joueurs dans la partie (0) » alors que la partie a des joueurs).
+    let _seats = [];
+    if (sub[4]) {
+      var _raw4 = sub[4];
+      for (var _i4 = 0; _i4 < _raw4.length; _i4++) {
+        var _el4 = _raw4[_i4];
+        if (typeof _el4 === 'number') {
+          _seats.push(_el4);                                   // repeated non-packed
+        } else if (_el4 && _el4.length !== undefined) {
+          var _p4 = 0;                                         // packed varints
+          while (_p4 < _el4.length) { var _r4 = Proto.decodeVarint(_el4, _p4); _p4 = _r4.pos; _seats.push(_r4.value); }
+        }
+      }
+    }
+    let pc = _seats.length;
+
+    // Pull playerActionTimeout from the NetGameInfo we already decoded
+    // above (field 6 of GameListNewMessage). Previous attempts probed
+    // sub[13] / sub[5] for a NetGameInfo that lives under neither —
+    // both came back null, so `timeout` always fell through to the
+    // hard-coded 15 s default regardless of what the table creator
+    // had set. NetGameInfo.playerActionTimeout is field 11 (see
+    // buildCreateGame above, which writes the same key).
+    var _gto = Proto.u32(gi, 11) || 0;
+    // NetGameInfo.startMoney is field 13 — same key the table creator
+    // wrote via buildCreateGame(). Default to 3000 if absent (matches
+    // the PokerTH server default for unconfigured games).
+    var _gsm = Proto.u32(gi, 13) || 0;
+    // NetGameInfo raise schedule: field 4 = mode (1=every N hands,
+    // 2=every N minutes), field 5 = N hands (mode 1), field 6 = N
+    // minutes (mode 2). Used to show a "blinds up in X hands" counter.
+    var _grmode  = Proto.u32(gi, 4) || 1;
+    var _grhands = Proto.u32(gi, 5) || 0;
+    var _grmins  = Proto.u32(gi, 6) || 0;
+    var _germode = Proto.u32(gi, 7) || 1;  // endRaiseMode (1=double,2=+val,3=keep)
+    var _gerval  = Proto.u32(gi, 8) || 0;  // endRaiseSmallBlindValue
+    var _gsb     = Proto.u32(gi, 12) || 0; // NetGameInfo.firstSmallBlind (field 12)
+    var _gdelay  = Proto.u32(gi, 10) || 0; // NetGameInfo.delayBetweenHands (field 10) → 2e « Temps »
+    // NetGameInfo.manualBlinds (champ 14, repeated packed uint32) : comme
+    // pour les playerIds (champ 4 plus haut), on gère les deux encodages
+    // packed (un buffer de varints) et repeated (une valeur par entrée).
+    var _gmb = [];
+    if (gi[14]) {
+      for (var _im = 0; _im < gi[14].length; _im++) {
+        var _em = gi[14][_im];
+        if (typeof _em === 'number') { _gmb.push(_em); }
+        else if (_em && _em.length !== undefined) {
+          var _pm = 0;
+          while (_pm < _em.length) { var _rm = Proto.decodeVarint(_em, _pm); _pm = _rm.pos; _gmb.push(_rm.value); }
+        }
+      }
+    }
+    S.games[id] = { name, mode, players:pc, seats:_seats, maxPlayers:maxp, type:gtype, priv:!!priv,
+                  timeout: _gto || 15, startMoney: _gsm || 3000, delay: _gdelay,
+                  raiseMode: _grmode, raiseHands: _grhands, raiseMins: _grmins, smallBlind: _gsb,
+                  endRaiseMode: _germode, endRaiseValue: _gerval, manualBlinds: _gmb,
+                  admin: gadm };
+    if (!S.loaded) { S.loaded = true; }
+    renderGames();
+    _refreshPlayersPanelIfOpen();
+    // ── Auto-join from a share link ──
+    // If we arrived via a "copy table link" URL and this is the
+    // table it pointed to, join it now (the lobby has just told
+    // us it exists). Clear the pending id so we only do it once.
+    // window._pendingAutoJoin is set by parseShareLink() which
+    // runs at global scope (outside this IIFE).
+    if (window._pendingAutoJoin && id === window._pendingAutoJoin && !S.amInGame) {
+      var _aj = window._pendingAutoJoin;
+      window._pendingAutoJoin = 0;
+      var fr = (typeof window._lang === 'undefined' || window._lang !== 'en');
+      addChat(null, t('sharedTableJoining'), 'sys', { key: 'sharedTableJoining' });
+      // Defer slightly so renderGames() has painted and games[id]
+      // is fully populated before joinGame reads it.
+      setTimeout(function(){
+        try {
+          if (window.LIVE_MODE && App && App.spectateGame) App.spectateGame(_aj);
+          else if (App && App.joinGame) App.joinGame(_aj);
+        } catch(e) {}
+      }, 150);
+    }
+    // \u2500\u2500 Auto-join by game NAME (invite links #join=<name>) \u2500\u2500
+    // Set by parseShareLink() from the canonical invite format (also
+    // emitted by App.shareTableLink and shareable with the QML client).
+    // Name matching because the numeric id is meaningless to the
+    // invitee and changes if the table is re-created. A password-
+    // protected table falls through to joinGame()'s password prompt
+    // \u2014 the link never carries the password.
+    // Several tables can share a name, and after login they arrive one by
+    // one: invite-link.mjs waits a beat, then prefers a table still waiting
+    // for players and falls back to watching one already running.
+    if (window._pendingAutoJoinName && namesMatch(name, window._pendingAutoJoinName) && !S.amInGame) {
+      scheduleInviteResolve(400);
+    }
+    return;
+}
+
+function onGameListUpdate(sub) {
+    const id   = Proto.u32(sub, 1);
+    const mode = Proto.u32(sub, 2);
+    if (S.games[id]) {
+      if (mode === 3) delete S.games[id];
+      else S.games[id].mode = mode;
+      renderGames();
+      _refreshPlayersPanelIfOpen();
+    }
+    return;
+}
+
+function onGameListPlayerJoined(sub) {
+    const id  = Proto.u32(sub, 1);
+    const pid = Proto.u32(sub, 2);
+    if (S.games[id]) {
+      if (!S.games[id].seats) S.games[id].seats = [];
+      if (pid && S.games[id].seats.indexOf(pid) === -1) S.games[id].seats.push(pid);
+      S.games[id].players = S.games[id].seats.length;
+      if (pid && !S.players[pid] && S._openTables.has(String(id)) && !S._pendingNameRequests.has(pid)) {
+        S._pendingNameRequests.add(pid);
+        try { send(Proto.encode([[1,0,T.PlayerInfoRequest],[19,2,Proto.encode([[1,0,pid]])]])); } catch(e) {}
+      }
+      renderGames();
+      _refreshPlayersPanelIfOpen();
+    }
+    return;
+}
+
+function onGameListPlayerLeft(sub) {
+    const id  = Proto.u32(sub, 1);
+    const pid = Proto.u32(sub, 2);
+    if (S.games[id]) {
+      if (S.games[id].seats) {
+        const _ix = S.games[id].seats.indexOf(pid);
+        if (_ix !== -1) S.games[id].seats.splice(_ix, 1);
+        S.games[id].players = S.games[id].seats.length;
+      } else if (S.games[id].players > 0) { S.games[id].players--; }
+      renderGames();
+      _refreshPlayersPanelIfOpen();
+    }
+    return;
+}
+
+// Spectateurs par table (parité QML 26018c9 syncPlayerGameMembership :
+// « idle = an keinem Tisch », assis OU spectateur — le pendant de la rôle 34
+// du client Widget). games[id].watchers alimente _playerActivity (pokerth.js),
+// donc le filtre « idle », la manette de statut et le tooltip « playing in »
+// de la liste des joueurs ; d'où le repaint à chaque changement, comme pour
+// les sièges.
+function onGameListSpectatorJoined(sub) {
+    const id  = Proto.u32(sub, 1);
+    const pid = Proto.u32(sub, 2);
+    if (S.games[id] && pid) {
+      if (!S.games[id].watchers) S.games[id].watchers = [];
+      if (S.games[id].watchers.indexOf(pid) === -1) S.games[id].watchers.push(pid);
+      _refreshPlayersPanelIfOpen();
+    }
+    return;
+}
+
+function onGameListSpectatorLeft(sub) {
+    const id  = Proto.u32(sub, 1);
+    const pid = Proto.u32(sub, 2);
+    if (S.games[id] && S.games[id].watchers) {
+      const _iw = S.games[id].watchers.indexOf(pid);
+      if (_iw !== -1) { S.games[id].watchers.splice(_iw, 1); _refreshPlayersPanelIfOpen(); }
+    }
+    return;
+}
+
+// ── Fenetre « Connexion perdue » (parite QML connectionLostPopup) ────────
+// Meme carcasse que l'avertissement de timeout (kcm-card) ; le motif est
+// deja traduit par onError. Escape ferme, comme le popup officiel.
+function _connLostShow(msg) {
+  var modal = document.getElementById('conn-lost-modal');
+  var el = document.getElementById('clm-msg');
+  if (!modal || !el) return;
+  el.textContent = msg || '';
+  modal.style.display = 'flex';
+}
+function _connLostClose() {
+  var modal = document.getElementById('conn-lost-modal');
+  if (modal) modal.style.display = 'none';
+}
+try {
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') return;
+    var m = document.getElementById('conn-lost-modal');
+    if (m && m.style.display === 'flex') _connLostClose();
+  });
+} catch (e) {}
+window._connLostShow = _connLostShow;
+window._connLostClose = _connLostClose;
+
+export { onAnnounce, onInitAck, onAuthChallenge, onReportGameAck, onReportAvatarAck, onAdminBanPlayerAck, onAdminGlobalNoticeAck, onError, onPlayerList, onStatistics, onPlayerInfoReply, onGameListNew, onGameListUpdate, onGameListPlayerJoined, onGameListPlayerLeft, onGameListAdminChanged, onGameListSpectatorJoined, onGameListSpectatorLeft };
+
+for (const [k, v] of Object.entries({ onAnnounce, onInitAck, onAuthChallenge, onReportGameAck, onReportAvatarAck, onAdminBanPlayerAck, onAdminGlobalNoticeAck, onError, onPlayerList, onStatistics, onPlayerInfoReply, onGameListNew, onGameListUpdate, onGameListPlayerJoined, onGameListPlayerLeft, onGameListAdminChanged, onGameListSpectatorJoined, onGameListSpectatorLeft }))
+  window[k] = v;

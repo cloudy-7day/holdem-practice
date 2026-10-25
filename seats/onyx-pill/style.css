@@ -1,0 +1,109 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Pack « Onyx Pill » (officiel) — pilule sombre, avatar rond débordant à droite,
+   cartes AU-DESSUS de la pilule (grandes et devant pour la self).
+   Convention : préfixe html[data-seat-struct="qml"] (même spécificité que la
+   structure commune, chargé après → gagne). NB : le rendu pose certains
+   styles EN LIGNE sur l'avatar (position:relative, couleurs) → les
+   propriétés de position du pack sont en !important pour primer.
+   Cadre virtuel QML : 114×84 (adversaires), ~150×96 (self).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── La pilule : hauteur FIXE -> vraie forme pilule, jamais une bulle ──── */
+html[data-seat-struct="qml"] .seat-plate {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0; position: relative;
+  width: 112px; height: 44px; min-height: 0; box-sizing: border-box;
+  padding: 3px 28px 4px 10px !important;   /* réserve avatar : JAMAIS écrasée */
+  background: linear-gradient(180deg, #3d3d3f 0%, #232324 55%, #101011 100%);
+  border: 1.5px solid #6f6f72;
+  border-radius: var(--r-pill);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.55);
+  overflow: visible;
+  /* Placement avatar/cartes : bloc générique data-seat-avatar="overlay" de
+     pokerth.css (trait avatarOverlay du pack). Avatar sur le bord DROIT,
+     centré verticalement ; cartes CENTRÉES (pas d'éventail, gap flex plutôt
+     que chevauchement) — valeurs historiques Onyx-Pill inchangées à l'écran. */
+  --seat-avatar-size: 44px; --seat-avatar-size-self: 50px;
+  --seat-avatar-top: 50%; --seat-avatar-bottom: auto; --seat-avatar-transform: translateY(-50%);
+  --seat-avatar-left: auto; --seat-avatar-right: -20px;
+  --seat-cards-gap: -6px; --seat-cards-bottom-self: calc(100% + 3px);
+  --seat-cards-left: 50%; --seat-cards-transform: translateX(-50%);
+  --seat-cards-overlap: 0px; --seat-cards-overlap-self: 0px; --seat-cards-fan: 0deg;
+}
+
+/* ── Avatar rond qui mord sur le bord droit — déco uniquement, le
+      placement vient du bloc générique overlay (pokerth.css) ─────────────── */
+html[data-seat-struct="qml"] .seat-avatar {
+  border: 2px solid #8a8a8e !important; border-radius: 50% !important;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.65);
+  z-index: 2;
+}
+
+/* ── Cartes adverses : posées sur le haut de la pilule, centrées — déco
+      uniquement, le placement vient du bloc générique overlay ──────────── */
+html[data-seat-struct="qml"] .seat-holecards {
+  display: flex !important; gap: 3px; z-index: 1;
+}
+html[data-seat-struct="qml"] .seat-holecards .pk {
+  width: 28px; height: 39px; font-size: var(--fs-3xs);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Nom / tapis : deux lignes centrées, fin séparateur ────────────────── */
+html[data-seat-struct="qml"] .seat-info {
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  min-width: 0; width: 100%;               /* borné au contenu : jamais sous l'avatar */
+}
+html[data-seat-struct="qml"] .seat-name {
+  color: #ffffff; font-weight: 700; font-size: 12px !important; line-height: 14px;
+  max-width: 100% !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16); padding-bottom: 1px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+html[data-seat-struct="qml"] .seat-money {
+  color: #E3C800; /* or PokerTH (accent QML), comme le pack PokerTH */
+  font-weight: 700; font-size: 12px !important; line-height: 15px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center; font-family: inherit;
+}
+
+/* ── États ─────────────────────────────────────────────────────────────── */
+html[data-seat-struct="qml"] .seat.active .seat-plate {
+  border-color: #E3C800;
+  box-shadow: 0 0 0 1px #E3C800, 0 0 14px rgba(227, 200, 0, 0.45);
+}
+html[data-seat-struct="qml"] .seat.active .seat-avatar { border-color: #E3C800 !important; }
+html[data-seat-struct="qml"] .seat.folded .seat-plate { opacity: 0.55; }
+html[data-seat-struct="qml"] .seat.folded .seat-holecards { opacity: 0.45; }
+
+/* ── SELF : pilule un peu plus large, MES CARTES grandes, AU-DESSUS et
+      DEVANT l'avatar (z-index 3 > avatar 2) — jamais cachées ────────────── */
+html[data-seat-struct="qml"] .seat.me .seat-plate {
+  width: 148px; height: 52px; padding-right: 34px !important;
+  border-color: #9a9a9e;
+}
+html[data-seat-struct="qml"] .seat.me .seat-holecards,
+html[data-seat-struct="qml"] .seat.me .seat-holecards.shc-big {
+  z-index: 3;
+}
+html[data-seat-struct="qml"] .seat.me .seat-holecards .pk,
+html[data-seat-struct="qml"] .seat.me .seat-holecards.shc-big .pk {
+  width: 42px !important; height: 59px !important; font-size: var(--fs-md);
+}
+
+/* ── v4 : formule de surbrillance + écarts (variables de la structure) ──── */
+html[data-seat-struct="qml"] .seat-plate {
+  --turn-glow-z: 1;          /* le cadre passe SOUS l'avatar débordant */
+  --winner-frame-z: 1;
+  --seat-bet-gap-r: 32px;    /* la mise s'écarte de l'avatar (droite) */
+}
+/* L'avatar complète le contour : anneau or quand au tour / gagnant. */
+html[data-seat-struct="qml"] .seat.active .seat-avatar {
+  border-color: #E3C800 !important;
+  box-shadow: 0 0 0 2px #E3C800, 0 0 12px rgba(227, 200, 0, 0.5) !important;
+}
+html[data-seat-struct="qml"] .seat.winner .seat-avatar {
+  border-color: #FFD700 !important;
+  box-shadow: 0 0 0 2px #FFD700, 0 0 14px rgba(255, 215, 0, 0.55) !important;
+}

@@ -1,0 +1,1253 @@
+// @ts-check
+// PokerTH web client — Écran « Journaux » (parité client Qt/QML : fenêtre de
+// gestion des logs, aperçu, exports, analyse).
+//
+// Source de vérité : src/gui/qt/gametable/log/guilog.cpp du client officiel —
+// la génération HTML/txt ci-dessous est un port ligne-à-ligne de
+// exportLogPdbToHtml/Txt (chemin neu=false ; modus 1 = fichier HTML,
+// modus 2 = txt, modus 3 = aperçu HTML).
+//
+// Données : la base IndexedDB 'pth_handlog' remplie par handlog.mjs
+// (modèle .pdb officiel : Session/Game/Player/Hand/Action). Une session
+// IndexedDB = un fichier pokerth-log-*.pdb du client officiel.
+//
+// Conception : module AUTONOME (comme handlog.mjs). Le client n'appelle que
+// window._openJournal() ; si le module n'est pas chargé, rien ne casse.
+//
+// Extras web (absents du client officiel, signalés dans l'UI) :
+//   · rétention automatique (pth_log_keep_days : 0=illimité, 7/30/90/180/365
+//     jours ; les sessions importées depuis un .pdb en sont exemptées)
+//   · « Tout supprimer »
+//   · recherche/surlignage dans l'aperçu
+
+// ── i18n ──────────────────────────────────────────────────────────────────
+function T(k, fb) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.t === 'function') {
+      const v = window.t(k);
+      if (v && v !== k) return v;
+    }
+  } catch (_e) {}
+  return fb;
+}
+
+// ── Accès IndexedDB (lecture/suppression ; l'écriture reste à handlog) ────
+const DB_NAME = 'pth_handlog';
+const DB_VERSION = 1;
+const STORES = ['meta', 'games', 'players', 'hands', 'actions'];
+
+function _open() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') { reject(new Error('no-idb')); return; }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      // Même schéma que handlog.mjs (au cas où ce module s'ouvre en premier).
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('meta'))    db.createObjectStore('meta', { keyPath: 'k' });
+      if (!db.objectStoreNames.contains('games'))   db.createObjectStore('games', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('players')) db.createObjectStore('players', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('hands'))   db.createObjectStore('hands', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('actions')) db.createObjectStore('actions', { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Chargement en deux temps : la liste des sessions ne lit que le store 'meta',
+// et les tables de détail (games/players/hands/actions) sont lues à la demande
+// pour la seule session sélectionnée, par plage de clés « sid: » — l'ouverture
+// de la fenêtre ne dépend donc plus du volume total de mains conservées.
+async function _loadMetas() {
+  const db = await _open();
+  const metas = await new Promise((res, rej) => {
+    const r = db.transaction(['meta'], 'readonly').objectStore('meta').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+  db.close();
+  return metas;
+}
+
+const DETAIL_STORES = ['games', 'players', 'hands', 'actions'];
+
+function _emptyDetail() {
+  return { games: [], players: [], hands: [], actions: [] };
+}
+
+async function _loadSession(sid) {
+  if (!sid) return _emptyDetail();
+  const db = await _open();
+  const range = IDBKeyRange.bound(sid + ':', sid + ';', false, true);
+  const get = (s) => new Promise((res, rej) => {
+    const r = db.transaction([s], 'readonly').objectStore(s).getAll(range);
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+  try {
+    const [games, players, hands, actions] = await Promise.all(DETAIL_STORES.map(get));
+    return { games, players, hands, actions };
+  } finally {
+    db.close();
+  }
+}
+
+// Supprime tous les enregistrements d'une session (les 5 stores).
+async function _deleteSession(sid) {
+  const db = await _open();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORES, 'readwrite');
+    tx.objectStore('meta').delete('session:' + sid);
+    // games/players/hands/actions : id préfixé `${sid}:` → plage lexicale.
+    const range = IDBKeyRange.bound(sid + ':', sid + ';', false, true);
+    ['games', 'players', 'hands', 'actions'].forEach((s) => {
+      const cur = tx.objectStore(s).openCursor(range);
+      cur.onsuccess = (e) => { const c = e.target.result; if (c) { c.delete(); c.continue(); } };
+    });
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function _deleteAll() {
+  const db = await _open();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORES, 'readwrite');
+    STORES.forEach((s) => tx.objectStore(s).clear());
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+}
+
+// ── Rétention automatique (extra web ; équivalent LogStoreDuration) ───────
+function _keepDays() {
+  try { return parseInt(localStorage.getItem('pth_log_keep_days') || '0', 10) || 0; } catch (_e) { return 0; }
+}
+
+// Plafond en nombre de sessions (0 = illimité). Complète la durée : borne le
+// volume stocké même quand la durée est « Toujours ».
+function _keepMax() {
+  try { return parseInt(localStorage.getItem('pth_log_keep_max') || '0', 10) || 0; } catch (_e) { return 0; }
+}
+
+// Sessions candidates à la purge : ni la session en cours, ni une session
+// importée, et dont l'identifiant porte une date exploitable.
+function _purgeable(metas, cur) {
+  const out = [];
+  for (const m of metas) {
+    const sid = m.sessionId || '';
+    if (!sid || sid === cur) continue; // jamais la session en cours
+    if (m.imported) continue;          // importées : demandées explicitement
+    const dm = sid.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!dm) continue;
+    out.push({ sid, ts: new Date(+dm[1], +dm[2] - 1, +dm[3]).getTime() });
+  }
+  return out;
+}
+
+async function purgeOldSessions() {
+  const days = _keepDays();
+  const max = _keepMax();
+  if (!days && !max) return;
+  try {
+    const metas = await _loadMetas();
+    const cur = (typeof window !== 'undefined' && window._handlog) ? window._handlog.sessionId : null;
+    const cand = _purgeable(metas, cur);
+    const doomed = new Set();
+    if (days) {
+      const cutoff = Date.now() - days * 86400000;
+      cand.forEach((c) => { if (c.ts < cutoff) doomed.add(c.sid); });
+    }
+    if (max) {
+      // sessionId = « AAAA-MM-JJ_HHMMSS » → tri lexical = tri chronologique.
+      const kept = cand.filter((c) => !doomed.has(c.sid))
+        .sort((a, b) => (a.sid < b.sid ? 1 : -1));
+      kept.slice(max).forEach((c) => doomed.add(c.sid));
+    }
+    for (const sid of doomed) await _deleteSession(sid);
+  } catch (_e) {}
+}
+
+// ── Rendu du log (port de guilog.cpp, neu=false) ──────────────────────────
+// modus : 1 = fichier HTML (</br> historiques inclus), 2 = txt, 3 = aperçu HTML.
+// Le client officiel colle « PREFLOP » à la ligne dealer en modus 3 ; on
+// insère le <br /> manquant (correctif cosmétique, exports 1/2 inchangés).
+
+const RANK = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+const SUIT_TXT = ['d', 'h', 's', 'c'];
+const SUIT_HTML = [
+  '<font size=+1><b>&diams;</b></font>',
+  '<font size=+1><b>&hearts;</b></font>',
+  '<font size=+1><b>&spades;</b></font>',
+  '<font size=+1><b>&clubs;</b></font>',
+];
+
+// convertCardIntToString : rang (gras en HTML) + couleur.
+function _card(code, modus) {
+  if (code == null || code < 0 || code > 51) return '';
+  const r = RANK[code % 13];
+  const s = modus === 2 ? SUIT_TXT[(code / 13) | 0] : SUIT_HTML[(code / 13) | 0];
+  if (modus === 2) return r + s;
+  return '<b>' + r + '</b>' + s;
+}
+
+const NET_ACTIONS = ['has left the game', 'was kicked from the game', 'is game admin now', 'has joined the game'];
+const NO_DOT = ['wins', 'shows', 'has', 'sits out', 'wins (side pot)', 'wins game'].concat(NET_ACTIONS);
+const ROUND_NAMES = ['PREFLOP', 'FLOP', 'TURN', 'RIVER'];
+
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+// tables : {session, games, players, hands, actions} déjà filtrées par session.
+// opts : { modus, uniqueGameID (0=toutes), handID (0=toutes) }.
+export function renderLog(tables, opts) {
+  const modus = opts.modus | 0;
+  const wantUg = opts.uniqueGameID | 0;
+  const wantHand = opts.handID | 0;
+  const html = modus !== 2;
+  const nameOf = (players, ug, seat) => {
+    const p = players.find((x) => x.uniqueGameID === ug && x.seat === seat);
+    const n = p ? String(p.player) : '?';
+    return html ? _esc(n) : n;
+  };
+  let out = '';
+
+  // En-tête de session.
+  const sess = tables.session || {};
+  let s = 'Log-File for PokerTH ' + (sess.pokerthVersion || 'web') + ' Session started on ' + (sess.date || '') + ' at ' + (sess.time || '');
+  if (modus === 1) out += '<h3><b>' + s + '</b></h3>\n';
+  else if (modus === 3) out += '<h4><b>' + s + '</b></h4>';
+  else out += s;
+
+  const games = (tables.games || []).filter((g) => !wantUg || g.uniqueGameID === wantUg)
+    .slice().sort((a, b) => a.uniqueGameID - b.uniqueGameID);
+
+  for (const g of games) {
+    const ug = g.uniqueGameID;
+    const hands = (tables.hands || []).filter((h) => h.uniqueGameID === ug && (!wantHand || h.handID === wantHand))
+      .slice().sort((a, b) => a.handID - b.handID);
+
+    for (const h of hands) {
+      const acts = (tables.actions || []).filter((a) => a.uniqueGameID === ug && a.handID === h.handID)
+        .slice().sort((a, b) => a.actionID - b.actionID);
+
+      // Game: X | Hand: Y
+      s = 'Game: ' + g.gameID + ' | Hand: ' + h.handID;
+      if (modus === 1) out += '<table><tr><td width="600" align="center"><hr noshade size="3"><b>' + s + '</b></td><td></td></tr></table>';
+      else if (modus === 2) out += '\n\n----------- ' + s + ' -----------\n';
+      else out += '----------- <b>' + s + '</b> -----------<br />';
+
+      // BLIND LEVEL
+      out += 'BLIND LEVEL: $' + h.sbAmount + ' / $' + h.bbAmount;
+      out += modus === 1 ? '</br>' : (modus === 2 ? '\n' : '<br />');
+
+      // Sièges avec tapis.
+      for (let i = 1; i <= 10; i++) {
+        const cash = h['Seat_' + i + '_Cash'];
+        if (cash == null) continue;
+        out += 'Seat ' + i + ': ';
+        out += html ? '<b>' + nameOf(tables.players, ug, i) + '</b>' : nameOf(tables.players, ug, i);
+        out += ' ($' + cash + ')';
+        out += modus === 1 ? '</br>' : (modus === 2 ? '\n' : '<br />');
+      }
+
+      // BLINDS: sb ($x), bb ($y) [+ dealer].
+      const sbA = acts.find((a) => a.beRo === 0 && a.action === 'posts small blind');
+      const bbA = acts.find((a) => a.beRo === 0 && a.action === 'posts big blind');
+      const dlA = acts.find((a) => a.beRo === 0 && a.action === 'starts as dealer');
+      if (sbA || bbA) {
+        out += 'BLINDS: ';
+        if (sbA) out += nameOf(tables.players, ug, sbA.seat) + ' ($' + sbA.amount + ')';
+        if (sbA && bbA) out += ', ';
+        if (bbA) out += nameOf(tables.players, ug, bbA.seat) + ' ($' + bbA.amount + ')';
+      }
+      if (dlA) {
+        out += modus === 1 ? '</br>' : (modus === 2 ? '\n' : '<br />');
+        out += nameOf(tables.players, ug, dlA.seat) + ' starts as dealer.';
+      }
+      if (modus === 1) out += '</br>';
+
+      // Streets 0..4 (4 = post-river, sans titre).
+      for (let round = 0; round <= 4; round++) {
+        if (round <= 3) {
+          let rs = ROUND_NAMES[round];
+          if (modus === 1) {
+            rs = '</br><b>' + rs + '</b>';
+            if (round >= 1) rs = '</br>\n' + rs;
+          } else if (modus === 2) {
+            rs = '\n\n' + rs;
+          } else {
+            rs = '<br /><b>' + rs + '</b>'; // correctif : <br /> aussi au PREFLOP
+            if (round >= 1) rs = '<br />' + rs;
+          }
+          if (round >= 1) {
+            // Cartes du board (skip la street si non atteinte).
+            const n = round + 2;
+            let ok = true;
+            let bs = ' [board cards ';
+            for (let i = 0; i < n; i++) {
+              const c = (h.board || [])[i];
+              if (c == null) { ok = false; break; }
+              bs += _card(c, modus);
+              if (i < n - 1) bs += ',';
+            }
+            if (!ok) continue;
+            rs += bs + ']';
+          }
+          out += rs;
+        }
+
+        // Actions de la street (hors dealer/blinds).
+        const ra = acts.filter((a) => a.beRo === round && a.action !== 'starts as dealer' && a.action !== 'posts small blind' && a.action !== 'posts big blind');
+        for (let k = 0; k < ra.length; k++) {
+          const a = ra[k];
+          // Séparateur (modus 1 : ligne simple après wins/sits out/side pot).
+          if (modus === 1) {
+            const prev = k > 0 ? ra[k - 1].action : '';
+            out += (k > 0 && (prev === 'wins' || prev === 'sits out' || prev === 'wins (side pot)')) ? '\n' : '</br>\n';
+          } else if (modus === 2) out += '\n';
+          else out += '<br />';
+
+          const nm = nameOf(tables.players, ug, a.seat);
+          let as;
+          if (a.action === 'wins (side pot)') {
+            as = nm + ' wins $' + a.amount + ' (side pot)';
+          } else {
+            as = nm + ' ' + a.action;
+            if (a.amount != null) as += ' $' + a.amount;
+          }
+
+          if (a.action === 'wins game') {
+            if (modus === 1) as = '</br></br><i><b>' + as + ' ' + g.gameID + '!</i></b></br>';
+            else if (modus === 2) as = as + ' ' + g.gameID + '!';
+            else as = '<i><b>' + as + ' ' + g.gameID + '!</b></i>';
+          }
+          if (a.action === 'wins' || a.action === 'wins (side pot)') {
+            if (modus === 1) as = '</br><i>' + as + '</i>';
+            else if (modus === 3) as = '<i>' + as + '</i>';
+          }
+          if (NET_ACTIONS.indexOf(a.action) !== -1) {
+            if (modus === 1) as = '<i>' + as + '!</i>';
+            else if (modus === 3) as = '<i>' + as + '</i>';
+          }
+          if (a.action === 'sits out') {
+            if (modus === 1) as = '</br><i><span style="font-size:smaller;">' + as + '</span></i>';
+            else if (modus === 3) as = '<i><span style="font-size:smaller;">' + as + '</span></i>';
+          }
+          out += as;
+
+          // shows/has : cartes propres [ + main au post-river ].
+          if (a.action === 'shows' || a.action === 'has') {
+            out += round === 4 ? ' [ ' : ' [';
+            out += _card(h['Seat_' + a.seat + '_Card_1'], modus) + ',' + _card(h['Seat_' + a.seat + '_Card_2'], modus) + ']';
+            if (round === 4) {
+              const ht = h['Seat_' + a.seat + '_Hand_text'];
+              if (ht != null) out += ' - ' + (html ? _esc(ht) : ht);
+            }
+          }
+
+          if (NO_DOT.indexOf(a.action) === -1) out += '.';
+        }
+      }
+
+      if (modus === 1) out += '\n';
+    }
+  }
+  return out;
+}
+
+// ── Sélection des tables d'une session ────────────────────────────────────
+function _sessionTables(all, sid) {
+  const keep = (r) => r.sessionId === sid;
+  const meta = (all.metas || []).find((m) => m.sessionId === sid);
+  return {
+    session: meta ? meta.session : null,
+    games: (all.games || []).filter(keep),
+    players: (all.players || []).filter(keep),
+    hands: (all.hands || []).filter(keep),
+    actions: (all.actions || []).filter(keep),
+  };
+}
+
+function _fileBase(sess, sid) {
+  const s = sess || {};
+  const date = (s.date || '').replace(/[^0-9-]/g, '');
+  const time = (s.time || '').replace(/:/g, '');
+  if (date && time) return 'pokerth-log-' + date + '_' + time;
+  return 'pokerth-log-' + (sid || 'export');
+}
+
+function _download(name, mime, content) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (_e) {} }, 100);
+}
+
+// ── UI ────────────────────────────────────────────────────────────────────
+// metas = toutes les sessions ; games/players/hands/actions = uniquement
+// celles de la session sélectionnée (_sel), chargées par _loadSelected().
+let _all = null;
+let _sel = null;        // sessionId sélectionné
+let _selGame = 0;       // uniqueGameID filtré (0 = toutes)
+let _upHash = null;     // last pokerth.net upload: { sid, hash } (analysis link)
+let _analyze = false;   // mode analyseur
+let _anHand = 0;        // handID courant en analyse
+
+// ── Multi-sélection ───────────────────────────────────────────────────────
+// Deux entrées : le bouton « Select… » (tactile, montre les cases à cocher)
+// et, sur desktop, Ctrl/Cmd+clic (bascule un log) ou Maj+clic (plage), qui
+// activent le mode à la volée comme dans un explorateur de fichiers.
+let _multi = false;         // mode sélection multiple actif
+let _anchor = null;         // ancre de plage pour Maj+clic
+const _marked = new Set();  // sessionIds cochés
+
+// ── Largeur de la colonne des sessions (poignée de redimensionnement) ─────
+// Mémorisée comme les géométries de fenêtre ; ignorée sur petit écran, où la
+// liste passe au-dessus de l'aperçu (media query).
+const LISTW_KEY = 'pth_jr_listw';
+const LISTW_MIN = 140;
+const PREVW_MIN = 240;
+
+function _listWide() {
+  try { return window.matchMedia('(min-width:600px)').matches; } catch (_e) { return true; }
+}
+
+function _setListW(px, save) {
+  const list = document.getElementById('jr-list');
+  const main = document.querySelector('#jr-modal .jr-main');
+  if (!list || !main) return;
+  const room = Math.max(LISTW_MIN, main.clientWidth - PREVW_MIN);
+  const w = Math.round(Math.min(room, Math.max(LISTW_MIN, px)));
+  list.style.flexBasis = w + 'px';
+  if (save) { try { localStorage.setItem(LISTW_KEY, String(w)); } catch (_e) {} }
+}
+
+function _applyListW() {
+  const list = document.getElementById('jr-list');
+  if (!list) return;
+  if (!_listWide()) { list.style.flexBasis = ''; return; }
+  let v = 0;
+  try { v = parseInt(localStorage.getItem(LISTW_KEY) || '0', 10) || 0; } catch (_e) {}
+  _setListW(v || list.getBoundingClientRect().width, false);
+}
+
+function _initSplit(el) {
+  if (!el) return;
+  let sx = 0, sw = 0, pid = null;
+  const width = () => {
+    const list = document.getElementById('jr-list');
+    return list ? list.getBoundingClientRect().width : 0;
+  };
+  el.addEventListener('pointerdown', (e) => {
+    if (!_listWide()) return;
+    sx = e.clientX; sw = width(); pid = e.pointerId;
+    try { el.setPointerCapture(pid); } catch (_e) {}
+    e.preventDefault();
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (pid == null) return;
+    _setListW(sw + (e.clientX - sx), false);
+  });
+  const end = () => {
+    if (pid == null) return;
+    pid = null;
+    _setListW(width(), true);
+  };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('keydown', (e) => {
+    if (!_listWide()) return;
+    if (e.key === 'ArrowLeft') { _setListW(width() - 16, true); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { _setListW(width() + 16, true); e.preventDefault(); }
+  });
+}
+
+const CSS = `
+#jr-modal{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}
+#jr-modal .km-backdrop{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+#jr-modal.jr-float{pointer-events:none}
+#jr-modal.jr-float .km-backdrop{display:none}
+#jr-modal.jr-float .jr-card{pointer-events:auto;position:fixed;margin:0;max-width:none !important;max-height:none !important}
+#jr-modal .jr-card{width:min(880px,96vw);max-height:min(88vh,700px);display:flex;flex-direction:column}
+#jr-modal .jr-top{display:flex;align-items:center;gap:8px;margin:2px 0 8px}
+#jr-modal .jr-main{display:flex;gap:10px;flex:1;min-height:0;overflow:hidden}
+#jr-modal .jr-list{flex:0 0 220px;min-width:140px;overflow:auto;border:1px solid var(--border,#39415066);border-radius:6px;padding:3px}
+#jr-modal .jr-item{display:block;width:100%;text-align:left;padding:6px 8px;border:0;background:transparent;color:var(--text,#cdd3e0);font:inherit;font-size:.82rem;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#jr-modal .jr-item .jr-ck{display:inline-block;width:12px;height:12px;line-height:11px;text-align:center;margin-right:6px;border:1px solid var(--border,#394150aa);border-radius:3px;font-size:.68rem;vertical-align:-1px}
+#jr-modal .jr-item.mk{background:rgba(139,26,26,.34)}
+#jr-modal .jr-item.mk .jr-ck{background:#8b1a1a;border-color:#8b1a1a;color:#fff}
+#jr-modal .jr-item.sel{background:#8b1a1a;color:#fff}
+#jr-modal .jr-item .jr-cur{opacity:.75;font-size:.72rem;margin-left:4px}
+#jr-modal .jr-split{flex:0 0 6px;align-self:stretch;border-radius:3px;background:var(--border,#39415066);opacity:.45;cursor:col-resize;touch-action:none}
+#jr-modal .jr-split:hover,#jr-modal .jr-split:focus-visible{opacity:1}
+#jr-modal .jr-right{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+#jr-modal .jr-prevlbl{font-size:.82rem;opacity:.8;margin-bottom:4px}
+#jr-modal .jr-prev{flex:1;overflow:auto;border:1px solid var(--border,#39415066);border-radius:6px;padding:8px 10px;background:var(--panel-bg,rgba(0,0,0,.14));font-size:.82rem;line-height:1.45;min-height:0}
+#jr-modal .jr-prev mark{background:#E3C800;color:#1d222b;border-radius:2px}
+#jr-modal .jr-btns{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;align-items:center}
+#jr-modal .jr-btns button[disabled]{opacity:.45;cursor:default}
+#jr-modal .jr-spacer{flex:1}
+#jr-modal .jr-link{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;align-items:center;font-size:.8rem}
+#jr-modal .jr-link input{flex:1 1 220px;min-width:0;font:inherit;font-size:.78rem;padding:4px 6px;border:1px solid var(--border,#39415066);border-radius:4px;background:var(--panel-bg,rgba(0,0,0,.14));color:var(--text,#cdd3e0)}
+#jr-modal .jr-link a{text-decoration:none;font-size:1rem;line-height:1;padding:2px 4px;color:var(--gold,#E3C800)}
+#jr-modal .jr-foot{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;align-items:center;font-size:.8rem;opacity:.9}
+#jr-modal .jr-an-nav{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+#jr-modal .jr-search{min-width:110px;flex:0 1 170px}
+@media (max-width:599.98px){#jr-modal .jr-main{flex-direction:column}#jr-modal .jr-split{display:none}#jr-modal .jr-list{flex:0 0 auto;width:auto;max-height:26vh}#jr-modal .jr-card{max-height:none;height:100%}}
+`;
+
+function _ensureModal() {
+  let m = document.getElementById('jr-modal');
+  if (m) return m;
+  const st = document.createElement('style');
+  st.textContent = CSS;
+  document.head.appendChild(st);
+  m = document.createElement('div');
+  m.id = 'jr-modal';
+  m.style.display = 'none';
+  m.innerHTML =
+    '<div class="km-backdrop"></div>' +
+    '<div class="km-card jr-card" role="dialog" aria-labelledby="jr-title">' +
+      '<button class="km-close" type="button" id="jr-close" aria-label="Close">\u2715</button>' +
+      '<div class="km-title" id="jr-title"></div>' +
+      '<div class="jr-top">' +
+        '<span id="jr-game-lbl"></span>' +
+        '<div class="sel-wrap adv-sel"><select id="jr-game"></select><span class="sel-arr">\u25be</span></div>' +
+        '<span class="jr-spacer"></span>' +
+        '<input type="search" id="jr-search" class="jr-search" autocomplete="off">' +
+      '</div>' +
+      '<div class="jr-main">' +
+        '<div class="jr-list" id="jr-list"></div>' +
+        '<div class="jr-split" id="jr-split" role="separator" aria-orientation="vertical" tabindex="0"></div>' +
+        '<div class="jr-right">' +
+          '<div class="jr-an-nav" id="jr-an-nav" style="display:none">' +
+            '<button type="button" class="btn-sm" id="jr-an-prev">\u2039</button>' +
+            '<div class="sel-wrap adv-sel"><select id="jr-an-hand"></select><span class="sel-arr">\u25be</span></div>' +
+            '<button type="button" class="btn-sm" id="jr-an-next">\u203a</button>' +
+            '<button type="button" class="btn-sm" id="jr-an-back"></button>' +
+          '</div>' +
+          '<div class="jr-prevlbl" id="jr-prevlbl"></div>' +
+          '<div class="jr-prev" id="jr-prev"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="jr-btns">' +
+        '<button type="button" class="btn-sm" id="jr-exp-html"></button>' +
+        '<button type="button" class="btn-sm" id="jr-exp-txt"></button>' +
+        '<button type="button" class="btn-sm" id="jr-saveas"></button>' +
+        '<button type="button" class="btn-sm" id="jr-import"></button>' +
+        '<button type="button" class="btn-sm" id="jr-select" aria-pressed="false"></button>' +
+        '<button type="button" class="btn-sm" id="jr-del"></button>' +
+        '<span class="jr-spacer"></span>' +
+        '<button type="button" class="btn-sm" id="jr-analyze"></button>' +
+        '<button type="button" class="btn-sm" id="jr-upload"></button>' +
+      '</div>' +
+      '<div class="jr-link" id="jr-link" style="display:none"></div>' +
+      '<div class="jr-foot">' +
+        '<span id="jr-keep-lbl"></span>' +
+        '<div class="sel-wrap adv-sel"><select id="jr-keep">' +
+          '<option value="0"></option><option value="7"></option><option value="30"></option>' +
+          '<option value="90"></option><option value="180"></option><option value="365"></option>' +
+        '</select><span class="sel-arr">\u25be</span></div>' +
+        '<span id="jr-max-lbl"></span>' +
+        '<div class="sel-wrap adv-sel"><select id="jr-max">' +
+          '<option value="0"></option><option value="20"></option><option value="50"></option>' +
+          '<option value="100"></option><option value="200"></option>' +
+        '</select><span class="sel-arr">\u25be</span></div>' +
+        '<em class="adv-webtag">web</em>' +
+        '<span class="jr-spacer"></span>' +
+        '<button type="button" class="btn-sm" id="jr-delall"></button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(m);
+
+  const $ = (id) => document.getElementById(id);
+  m.querySelector('.km-backdrop').addEventListener('click', closeJournal);
+  $('jr-close').addEventListener('click', closeJournal);
+  $('jr-game').addEventListener('change', () => { _selGame = parseInt($('jr-game').value, 10) || 0; _anHand = 0; _renderRight(); });
+  $('jr-search').addEventListener('input', _applySearch);
+  $('jr-exp-html').addEventListener('click', () => _export(1));
+  $('jr-exp-txt').addEventListener('click', () => _export(2));
+  $('jr-saveas').addEventListener('click', _saveAsPdb);
+  $('jr-import').addEventListener('click', _importPdbs);
+  $('jr-select').addEventListener('click', () => _setMulti(!_multi));
+  $('jr-list').addEventListener('keydown', _onListKey);
+  $('jr-del').addEventListener('click', _delSelected);
+  $('jr-delall').addEventListener('click', _delAll);
+  $('jr-analyze').addEventListener('click', () => { _analyze = !_analyze; _anHand = 0; _renderRight(); });
+  $('jr-upload').addEventListener('click', _uploadAnalysis);
+  $('jr-an-back').addEventListener('click', () => { _analyze = false; _renderRight(); });
+  $('jr-an-hand').addEventListener('change', () => { _anHand = parseInt($('jr-an-hand').value, 10) || 0; _renderRight(); });
+  $('jr-an-prev').addEventListener('click', () => _stepHand(-1));
+  $('jr-an-next').addEventListener('click', () => _stepHand(1));
+  $('jr-keep').addEventListener('change', () => {
+    try { localStorage.setItem('pth_log_keep_days', $('jr-keep').value); } catch (_e) {}
+    purgeOldSessions().then(() => _reload());
+  });
+  $('jr-max').addEventListener('change', () => {
+    try { localStorage.setItem('pth_log_keep_max', $('jr-max').value); } catch (_e) {}
+    purgeOldSessions().then(() => _reload());
+  });
+  _initSplit($('jr-split'));
+  window.addEventListener('resize', () => {
+    const md = document.getElementById('jr-modal');
+    if (md && md.style.display !== 'none') _applyListW();
+  });
+  return m;
+}
+
+function _applyTexts() {
+  const $ = (id) => document.getElementById(id);
+  $('jr-title').textContent = T('jrTitle', 'Logs');
+  $('jr-game-lbl').textContent = T('jrGame', 'Game:');
+  $('jr-search').placeholder = T('jrSearch', 'Search\u2026');
+  $('jr-prevlbl').textContent = T('jrPreview', 'Preview:');
+  $('jr-exp-html').textContent = T('jrExportHtml', 'Export as HTML');
+  $('jr-exp-txt').textContent = T('jrExportTxt', 'Export as txt');
+  $('jr-saveas').textContent = T('jrSaveAs', 'Save as\u2026');
+  $('jr-import').textContent = T('jrImport', 'Import .pdb\u2026');
+  _syncSelBtns();
+  $('jr-delall').textContent = T('jrDeleteAll', 'Delete all');
+  $('jr-analyze').textContent = T('jrAnalyze', 'Analyse log file\u2026');
+  $('jr-upload').textContent = T('jrUploadNet', 'Analyse on pokerth.net\u2026');
+  $('jr-an-back').textContent = T('jrBack', 'Back to preview');
+  $('jr-keep-lbl').textContent = T('jrRetention', 'Keep logs');
+  const ko = $('jr-keep').options;
+  ko[0].textContent = T('jrKeepForever', 'Forever');
+  for (let i = 1; i < ko.length; i++) ko[i].textContent = T('jrKeepDays', '{n} days').replace('{n}', ko[i].value);
+  $('jr-keep').value = String(_keepDays());
+  $('jr-max-lbl').textContent = T('jrKeepMax', 'Maximum');
+  const mo = $('jr-max').options;
+  mo[0].textContent = T('jrKeepAll', 'No limit');
+  for (let i = 1; i < mo.length; i++) mo[i].textContent = T('jrKeepLogs', '{n} logs').replace('{n}', mo[i].value);
+  $('jr-max').value = String(_keepMax());
+  const sp = $('jr-split');
+  sp.setAttribute('aria-label', T('jrResizeList', 'Resize the list'));
+  sp.title = T('jrResizeList', 'Resize the list');
+}
+
+function _sessions() {
+  return (_all && _all.metas ? _all.metas.slice() : [])
+    .filter((m) => m.sessionId)
+    .sort((a, b) => (a.sessionId < b.sessionId ? 1 : -1));
+}
+
+function _renderList() {
+  const list = document.getElementById('jr-list');
+  const cur = (typeof window !== 'undefined' && window._handlog) ? window._handlog.sessionId : null;
+  const ss = _sessions();
+  list.innerHTML = '';
+  if (!ss.length) {
+    const d = document.createElement('div');
+    d.style.cssText = 'padding:8px;font-size:.8rem;opacity:.75';
+    d.textContent = T('jrEmpty', 'No logs yet. Play a hand and the session will appear here.');
+    list.appendChild(d);
+    _marked.clear();
+    _syncSelBtns();
+    return;
+  }
+  if (!_sel || !ss.some((m) => m.sessionId === _sel)) _sel = ss[0].sessionId;
+  if (_marked.size) {
+    const alive = new Set(ss.map((m) => m.sessionId));
+    Array.from(_marked).forEach((id) => { if (!alive.has(id)) _marked.delete(id); });
+  }
+  ss.forEach((m) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const mk = _marked.has(m.sessionId);
+    b.className = 'jr-item' + (mk ? ' mk' : '') + (m.sessionId === _sel ? ' sel' : '');
+    if (_multi) {
+      b.setAttribute('role', 'checkbox');
+      b.setAttribute('aria-checked', mk ? 'true' : 'false');
+      const ck = document.createElement('span');
+      ck.className = 'jr-ck';
+      ck.textContent = mk ? '\u2713' : '';
+      b.appendChild(ck);
+    }
+    b.appendChild(document.createTextNode(_fileBase(m.session, m.sessionId)));
+    if (m.sessionId === cur) {
+      const em = document.createElement('span');
+      em.className = 'jr-cur';
+      em.textContent = '\u2022 ' + T('jrCurrent', 'current');
+      b.appendChild(em);
+    }
+    if (m.imported) {
+      const em = document.createElement('span');
+      em.className = 'jr-cur';
+      em.textContent = '\u2022 ' + T('jrImported', 'imported');
+      b.appendChild(em);
+    }
+    b.addEventListener('click', (ev) => {
+      const range = !!(ev && ev.shiftKey);
+      const toggle = !!(ev && (ev.ctrlKey || ev.metaKey));
+      if (_multi || range || toggle) {
+        if (!_multi) {
+          _multi = true;
+          if (_sel) { _marked.add(_sel); _anchor = _sel; }
+        }
+        if (range) _markRange(m.sessionId);
+        else if (_marked.has(m.sessionId)) { _marked.delete(m.sessionId); _anchor = m.sessionId; }
+        else { _marked.add(m.sessionId); _anchor = m.sessionId; }
+        _renderList();
+        return;
+      }
+      if (m.sessionId === _sel) return;
+      _sel = m.sessionId; _selGame = 0; _anHand = 0;
+      _renderList();
+      _loadSelected();
+    });
+    list.appendChild(b);
+  });
+  _syncSelBtns();
+}
+
+// Déplace le focus sur la n-ième entrée après un redessin (les boutons sont
+// recréés à chaque _renderList, donc le focus doit être reposé à la main).
+function _focusItem(i) {
+  const items = document.querySelectorAll('#jr-list .jr-item');
+  const it = items[Math.max(0, Math.min(items.length - 1, i))];
+  if (!it) return;
+  it.focus();
+  try { it.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+}
+
+// Clavier dans la liste : Haut/Bas se déplacent d'une entrée, Maj + Haut/Bas
+// étend la sélection depuis l'ancre — le pendant de Maj + clic pour qui ne
+// quitte pas le clavier. En mode sélection, Haut/Bas déplacent le focus sans
+// rien cocher : c'est Espace (le clic natif du bouton) qui coche.
+function _onListKey(ev) {
+  const dir = ev.key === 'ArrowDown' ? 1 : (ev.key === 'ArrowUp' ? -1 : 0);
+  if (!dir || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const items = Array.from(document.querySelectorAll('#jr-list .jr-item'));
+  if (!items.length) return;
+  const ids = _sessions().map((m) => m.sessionId);
+  let from = items.indexOf(document.activeElement);
+  if (from < 0) from = Math.max(0, ids.indexOf(_sel));
+  const to = Math.max(0, Math.min(items.length - 1, from + dir));
+  ev.preventDefault();
+  if (to === from && !ev.shiftKey) { _focusItem(to); return; }
+  const sid = ids[to];
+  if (ev.shiftKey) {
+    if (!_multi) {
+      // L'ancre est l'entrée d'où l'on part, qui n'est pas forcément celle en
+      // aperçu : en mode sélection le focus se promène tout seul.
+      _multi = true;
+      const a0 = ids[from];
+      if (a0) { _marked.add(a0); _anchor = a0; }
+    }
+    _markRange(sid);
+    _renderList();
+  } else if (_multi) {
+    // Le focus se promène, la sélection ne bouge pas.
+  } else if (sid !== _sel) {
+    _sel = sid; _selGame = 0; _anHand = 0;
+    _renderList();
+    _loadSelected();
+  }
+  _focusItem(to);
+}
+
+// Coche la plage entre l'ancre (dernier log cliqué, sinon l'aperçu) et sid.
+function _markRange(sid) {
+  const ids = _sessions().map((m) => m.sessionId);
+  const a = ids.indexOf(_anchor == null ? _sel : _anchor);
+  const b = ids.indexOf(sid);
+  if (a < 0 || b < 0) { _marked.add(sid); return; }
+  for (let i = Math.min(a, b); i <= Math.max(a, b); i++) _marked.add(ids[i]);
+}
+
+function _setMulti(on) {
+  _multi = !!on;
+  if (!_multi) { _marked.clear(); _anchor = null; }
+  _renderList();
+}
+
+// Libellés et état des deux boutons liés à la sélection.
+function _syncSelBtns() {
+  const sb = document.getElementById('jr-select');
+  const db = document.getElementById('jr-del');
+  const n = _multi ? _marked.size : 0;
+  if (sb) {
+    sb.textContent = _multi ? T('jrSelectCancel', 'Cancel selection') : T('jrSelect', 'Select\u2026');
+    sb.setAttribute('aria-pressed', _multi ? 'true' : 'false');
+    sb.title = T('jrSelectHint', 'Pick several logs to delete at once \u2014 Ctrl (\u2318) + click to add one, Shift + click for a range');
+  }
+  if (db) {
+    db.textContent = n ? T('jrDeleteN', 'Delete ({n})').replace('{n}', String(n)) : T('jrDelete', 'Delete');
+    db.disabled = _multi && !n;
+  }
+}
+
+function _renderGames() {
+  const sel = document.getElementById('jr-game');
+  sel.innerHTML = '';
+  const oAll = document.createElement('option');
+  oAll.value = '0';
+  oAll.textContent = T('jrAllGames', 'All games');
+  sel.appendChild(oAll);
+  if (!_sel) return;
+  const tb = _sessionTables(_all, _sel);
+  tb.games.slice().sort((a, b) => a.uniqueGameID - b.uniqueGameID).forEach((g) => {
+    const o = document.createElement('option');
+    o.value = String(g.uniqueGameID);
+    o.textContent = T('jrGameN', 'Game {n}').replace('{n}', String(g.gameID));
+    sel.appendChild(o);
+  });
+  sel.value = String(_selGame);
+}
+
+function _handsOfScope(tb) {
+  return tb.hands.filter((h) => !_selGame || h.uniqueGameID === _selGame)
+    .slice().sort((a, b) => (a.uniqueGameID - b.uniqueGameID) || (a.handID - b.handID));
+}
+
+function _renderRight() {
+  _renderLink();
+  const $ = (id) => document.getElementById(id);
+  const prev = $('jr-prev');
+  const nav = $('jr-an-nav');
+  if (!_sel) { prev.innerHTML = ''; nav.style.display = 'none'; return; }
+  const tb = _sessionTables(_all, _sel);
+
+  if (_analyze) {
+    nav.style.display = '';
+    $('jr-prevlbl').textContent = T('jrAnalyzeLbl', 'Hand log:');
+    const hands = _handsOfScope(tb);
+    const hs = $('jr-an-hand');
+    hs.innerHTML = '';
+    hands.forEach((h) => {
+      const g = tb.games.find((x) => x.uniqueGameID === h.uniqueGameID);
+      const o = document.createElement('option');
+      o.value = String(h.handID);
+      o.dataset.ug = String(h.uniqueGameID);
+      o.textContent = T('jrGameN', 'Game {n}').replace('{n}', String(g ? g.gameID : h.uniqueGameID)) + ' \u00b7 ' + T('jrHand', 'Hand') + ' ' + h.handID;
+      hs.appendChild(o);
+    });
+    if (!hands.length) { prev.innerHTML = ''; return; }
+    let idx = hands.findIndex((h) => h.handID === _anHand && (!_selGame || h.uniqueGameID === _selGame));
+    if (idx < 0) idx = 0;
+    const h = hands[idx];
+    _anHand = h.handID;
+    hs.selectedIndex = idx;
+    prev.innerHTML = renderLog(tb, { modus: 3, uniqueGameID: h.uniqueGameID, handID: h.handID });
+  } else {
+    nav.style.display = 'none';
+    $('jr-prevlbl').textContent = T('jrPreview', 'Preview:');
+    prev.innerHTML = renderLog(tb, { modus: 3, uniqueGameID: _selGame });
+  }
+  _applySearch();
+}
+
+function _stepHand(dir) {
+  if (!_sel) return;
+  const tb = _sessionTables(_all, _sel);
+  const hands = _handsOfScope(tb);
+  if (!hands.length) return;
+  let idx = hands.findIndex((h) => h.handID === _anHand);
+  if (idx < 0) idx = 0;
+  idx = Math.min(hands.length - 1, Math.max(0, idx + dir));
+  _anHand = hands[idx].handID;
+  _renderRight();
+}
+
+// Surlignage <mark> de la recherche (texte uniquement, DOM déjà rendu).
+function _applySearch() {
+  const q = (document.getElementById('jr-search').value || '').trim().toLowerCase();
+  const prev = document.getElementById('jr-prev');
+  prev.querySelectorAll('mark').forEach((mk) => {
+    const p = mk.parentNode;
+    p.replaceChild(document.createTextNode(mk.textContent), mk);
+    p.normalize();
+  });
+  if (!q) return;
+  const walker = document.createTreeWalker(prev, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) if (n.nodeValue.toLowerCase().indexOf(q) !== -1) targets.push(n);
+  targets.forEach((node) => {
+    const frag = document.createDocumentFragment();
+    let txt = node.nodeValue;
+    let i;
+    while ((i = txt.toLowerCase().indexOf(q)) !== -1) {
+      frag.appendChild(document.createTextNode(txt.slice(0, i)));
+      const mk = document.createElement('mark');
+      mk.textContent = txt.slice(i, i + q.length);
+      frag.appendChild(mk);
+      txt = txt.slice(i + q.length);
+    }
+    frag.appendChild(document.createTextNode(txt));
+    node.parentNode.replaceChild(frag, node);
+  });
+}
+
+function _export(modus) {
+  if (!_sel) return;
+  const tb = _sessionTables(_all, _sel);
+  const base = _fileBase(tb.session, _sel);
+  const body = renderLog(tb, { modus, uniqueGameID: _selGame });
+  if (modus === 2) {
+    _download(base + '.txt', 'text/plain;charset=utf-8', body);
+  } else {
+    const doc = '<html><head><meta charset="utf-8"><title>' + base + '</title></head><body>\n' + body + '\n</body></html>';
+    _download(base + '.html', 'text/html;charset=utf-8', doc);
+  }
+}
+
+// « Enregistrer sous… » = le .pdb de la session (comme le client officiel),
+// nom libre. Réutilise buildPdb exposé par handlog.mjs.
+async function _saveAsPdb() {
+  if (!_sel) return;
+  if (typeof window._buildPdb !== 'function') { alert(T('jrNoSql', 'PDB export unavailable (sql.js not loaded)')); return; }
+  const tb = _sessionTables(_all, _sel);
+  const base = _fileBase(tb.session, _sel);
+  let name = prompt(T('jrSaveAsPrompt', 'File name'), base + '.pdb');
+  if (!name) return;
+  if (!/\.pdb$/i.test(name)) name += '.pdb';
+  try {
+    const bytes = await window._buildPdb(tb);
+    _download(name, 'application/x-sqlite3', new Blob([bytes]));
+  } catch (_e) {
+    alert(T('jrNoSql', 'PDB export unavailable (sql.js not loaded)'));
+  }
+}
+
+// ── Analyse sur pokerth.net ────────────────────────────────────────────────
+// Pipeline IDENTIQUE au client de bureau/QML (LogHandler::analyse) : le .pdb
+// part sur pokerth.net/log_file_analysis/upload.php, le serveur répond
+// « OK <hash> » et range le fichier sous <hash>.pdb — c'est ce hash que les
+// rapports bbc/wec utilisent. On ouvre ensuite la même page d'analyse que le
+// client officiel. Le POST passe par notre proxy (/pdb-analyse) parce que
+// upload.php n'envoie aucun en-tête CORS : le navigateur pourrait émettre la
+// requête mais pas lire la réponse, donc pas de hash, donc pas de lien.
+const PTHNET_PDB_API = '/pdb-analyse';
+// Analysis page of ONE game. logfile-analysis.pokerth.net/?ID=<hash> (what
+// the official clients open) redirects here with game_id=1 hard-coded: in a
+// session holding several games that is not always the right one, so the
+// wanted game is targeted directly. It is also the format the BBC/WEC sites
+// read when a result is recorded (?pdb=…&game_id=…).
+const PTHNET_GAMELOG = 'https://www.pokerth.net/gamelog';
+
+// Game the link points to: the one picked in « Game: », otherwise the last
+// game of the session (the one just played, in the usual case).
+function _linkGame() {
+  if (!_sel || !_all) return null;
+  const games = _sessionTables(_all, _sel).games.slice().sort((a, b) => a.uniqueGameID - b.uniqueGameID);
+  if (!games.length) return null;
+  if (_selGame) return games.find((g) => g.uniqueGameID === _selGame) || null;
+  return games[games.length - 1];
+}
+
+function _linkUrl(hash, g) {
+  return PTHNET_GAMELOG + '?pdb=' + encodeURIComponent(hash) + '&game_id=' + (g ? g.uniqueGameID : 1);
+}
+
+// Row « Game N [link] [Copy link] [↗] » under the buttons, after a successful
+// upload of the displayed session. Picking another game rewrites the link
+// without a second upload (same hash, other game_id).
+function _renderLink() {
+  const box = document.getElementById('jr-link');
+  if (!box) return;
+  const g = (_upHash && _upHash.sid === _sel) ? _linkGame() : null;
+  if (!g) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const url = _linkUrl(_upHash.hash, g);
+  box.innerHTML = '';
+  const lbl = document.createElement('span');
+  lbl.textContent = T('jrGameN', 'Game {n}').replace('{n}', String(g.gameID));
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.readOnly = true; inp.value = url; inp.setAttribute('aria-label', url);
+  inp.addEventListener('focus', () => { try { inp.select(); } catch (_e) {} });
+  const cp = document.createElement('button');
+  cp.type = 'button'; cp.className = 'btn-sm';
+  cp.textContent = T('invCopyLink', 'Copy link');
+  cp.addEventListener('click', () => {
+    if (window.App && typeof window.App._copyInviteUrl === 'function') window.App._copyInviteUrl(url);
+    else { try { inp.focus(); inp.select(); document.execCommand('copy'); } catch (_e) {} }
+  });
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = '\u2197';
+  a.title = url; a.setAttribute('aria-label', url);
+  box.appendChild(lbl); box.appendChild(inp); box.appendChild(cp); box.appendChild(a);
+  box.style.display = '';
+}
+
+async function _uploadAnalysis() {
+  if (!_sel) return;
+  if (typeof window._buildPdb !== 'function') { alert(T('jrNoSql', 'PDB export unavailable (sql.js not loaded)')); return; }
+  const btn = document.getElementById('jr-upload');
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+  // Onglet ouvert SYNCHRONIQUEMENT (dans le geste utilisateur) : un
+  // window.open après l'await serait bloqué en silence par les bloqueurs de
+  // popups (rapport forum « ne fait rien »). L'URL est injectée après coup.
+  let tab = null;
+  try { tab = window.open('', '_blank'); } catch (_e) {}
+  try {
+    const tb = _sessionTables(_all, _sel);
+    const bytes = await window._buildPdb(tb);
+    // Corps = octets bruts du .pdb ; le nom annoncé en amont suit la même
+    // convention que le client officiel (pokerth-log-<date>_<heure>.pdb).
+    const name = _fileBase(tb.session, _sel) + '.pdb';
+    const r = await fetch(PTHNET_PDB_API + '?name=' + encodeURIComponent(name), {
+      method: 'POST', headers: { 'Content-Type': 'application/x-sqlite3' }, body: bytes
+    });
+    const j = await r.json();
+    if (!j || j.ok !== true || !j.id) throw new Error('bad response');
+    _upHash = { sid: _sel, hash: String(j.id) };
+    const url = _linkUrl(_upHash.hash, _linkGame());
+    _renderLink();
+    if (tab && !tab.closed) {
+      try { tab.opener = null; } catch (_e2) {}
+      tab.location = url;
+    } else {
+      const w2 = window.open(url, '_blank', 'noopener');
+      if (!w2) alert(url); // dernier recours : montrer l'URL
+    }
+  } catch (_e) {
+    if (tab && !tab.closed) { try { tab.close(); } catch (_e2) {} }
+    alert(T('jrUploadFail', 'Upload to pokerth.net failed'));
+  }
+  if (btn) { btn.disabled = false; btn.textContent = old; }
+}
+
+// ── Import de fichiers .pdb (client desktop ou web) ────────────────────────
+// Lit chaque SQLite via sql.js et insère les sessions dans IndexedDB au même
+// modèle que handlog.mjs (mêmes clés que HandStore). Dédup par sessionId
+// (Date_Heure de la table Session) : ré-importer un lot est idempotent.
+// Parse défensif : colonnes lues par nom, colonnes inconnues ignorées,
+// fichiers illisibles comptés et sautés (compte-rendu en fin d'import).
+
+function _rows(db, sql) {
+  const res = db.exec(sql);
+  if (!res || !res[0]) return [];
+  const cols = res[0].columns;
+  return res[0].values.map((v) => { const o = {}; cols.forEach((c, i) => { o[c] = v[i]; }); return o; });
+}
+
+function _parsePdb(db) {
+  const sess = _rows(db, 'SELECT * FROM Session')[0];
+  if (!sess || !sess.Date) throw new Error('no-session');
+  const session = {
+    pokerthVersion: String(sess.PokerTH_Version == null ? '' : sess.PokerTH_Version),
+    date: String(sess.Date),
+    time: String(sess.Time == null ? '' : sess.Time),
+    logVersion: sess.LogVersion == null ? 1 : sess.LogVersion | 0,
+  };
+  const sid = session.date + '_' + session.time.replace(/:/g, '');
+  const games = _rows(db, 'SELECT * FROM Game').map((r) => ({
+    uniqueGameID: r.UniqueGameID | 0, gameID: r.GameID | 0,
+    startMoney: r.Startmoney | 0, startSb: r.StartSb | 0, dealerPos: r.DealerPos | 0,
+    winnerSeat: r.Winner_Seat == null ? null : r.Winner_Seat | 0,
+  }));
+  const players = _rows(db, 'SELECT * FROM Player').map((r) => ({
+    uniqueGameID: r.UniqueGameID | 0, seat: r.Seat | 0,
+    player: String(r.Player == null ? '' : r.Player),
+  }));
+  const hands = _rows(db, 'SELECT * FROM Hand').map((r) => {
+    const h = {
+      uniqueGameID: r.UniqueGameID | 0, handID: r.HandID | 0,
+      dealerSeat: r.Dealer_Seat == null ? null : r.Dealer_Seat | 0,
+      sbAmount: r.Sb_Amount | 0, sbSeat: r.Sb_Seat | 0,
+      bbAmount: r.Bb_Amount | 0, bbSeat: r.Bb_Seat | 0,
+      board: [],
+    };
+    for (let i = 1; i <= 5; i++) { const c = r['BoardCard_' + i]; h.board.push(c == null ? null : c | 0); }
+    for (const k in r) if (/^Seat_\d+_/.test(k) && r[k] != null) h[k] = r[k];
+    return h;
+  });
+  const actions = _rows(db, 'SELECT * FROM Action ORDER BY ActionID').map((r) => ({
+    actionID: r.ActionID | 0, handID: r.HandID | 0, uniqueGameID: r.UniqueGameID | 0,
+    beRo: r.BeRo | 0, seat: r.Player | 0,
+    action: String(r.Action == null ? '' : r.Action),
+    amount: r.Amount == null ? null : r.Amount | 0,
+  }));
+  return { sid, session, games, players, hands, actions };
+}
+
+async function _sessionExists(sid) {
+  const db = await _open();
+  const found = await new Promise((res) => {
+    const r = db.transaction(['meta'], 'readonly').objectStore('meta').get('session:' + sid);
+    r.onsuccess = () => res(!!r.result);
+    r.onerror = () => res(false);
+  });
+  db.close();
+  return found;
+}
+
+async function _writeSession(t) {
+  const db = await _open();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORES, 'readwrite');
+    const sid = t.sid;
+    // imported:true → exemptée de la rétention automatique (purgeOldSessions).
+    tx.objectStore('meta').put({ k: 'session:' + sid, session: t.session, sessionId: sid, imported: true });
+    const g = tx.objectStore('games');
+    t.games.forEach((x) => g.put({ id: sid + ':' + x.uniqueGameID, sessionId: sid, ...x }));
+    const p = tx.objectStore('players');
+    t.players.forEach((x) => p.put({ id: sid + ':' + x.uniqueGameID + ':' + x.seat, sessionId: sid, ...x }));
+    const h = tx.objectStore('hands');
+    t.hands.forEach((x) => h.put({ id: sid + ':' + x.uniqueGameID + ':' + x.handID, sessionId: sid, ...x }));
+    const a = tx.objectStore('actions');
+    t.actions.forEach((x) => a.put({ id: sid + ':' + x.actionID, sessionId: sid, ...x }));
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+}
+
+function _importPdbs() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.multiple = true; inp.accept = '.pdb';
+  inp.onchange = async () => {
+    const files = Array.from(inp.files || []);
+    if (!files.length) return;
+    const btn = document.getElementById('jr-import');
+    const old = btn ? btn.textContent : '';
+    if (btn) btn.disabled = true;
+    let SQL = null;
+    try {
+      if (typeof window._loadSqlJs !== 'function') throw new Error('no-sqljs');
+      SQL = await window._loadSqlJs();
+    } catch (_e) {
+      if (btn) { btn.disabled = false; btn.textContent = old; }
+      alert(T('jrNoSql', 'PDB export unavailable (sql.js not loaded)'));
+      return;
+    }
+    let ok = 0, dup = 0, ko = 0;
+    for (let i = 0; i < files.length; i++) {
+      if (btn) btn.textContent = (i + 1) + '/' + files.length + '\u2026';
+      let db = null;
+      try {
+        const buf = new Uint8Array(await files[i].arrayBuffer());
+        db = new SQL.Database(buf);
+        const t = _parsePdb(db);
+        if (await _sessionExists(t.sid)) dup++;
+        else { await _writeSession(t); ok++; }
+      } catch (_e) { ko++; }
+      if (db) { try { db.close(); } catch (_e2) {} }
+    }
+    if (btn) { btn.disabled = false; btn.textContent = old; }
+    await _reload();
+    alert(T('jrImportDone', 'Import: {ok} added \u00b7 {dup} already present \u00b7 {ko} unreadable')
+      .replace('{ok}', String(ok)).replace('{dup}', String(dup)).replace('{ko}', String(ko)));
+  };
+  inp.click();
+}
+
+async function _delSelected() {
+  if (_multi && _marked.size) {
+    const ids = Array.from(_marked);
+    const msg = T('jrConfirmDeleteN', 'Delete {n} logs? This cannot be undone.').replace('{n}', String(ids.length));
+    if (!confirm(msg)) return;
+    for (const sid of ids) await _deleteSession(sid);
+    if (ids.indexOf(_sel) >= 0) _sel = null;
+    _multi = false; _anchor = null; _marked.clear();
+    await _reload();
+    return;
+  }
+  if (!_sel) return;
+  if (!confirm(T('jrConfirmDelete', 'Delete this log?'))) return;
+  await _deleteSession(_sel);
+  _sel = null;
+  await _reload();
+}
+
+async function _delAll() {
+  if (!confirm(T('jrConfirmDeleteAll', 'Delete ALL logs?'))) return;
+  await _deleteAll();
+  _sel = null;
+  _multi = false; _anchor = null; _marked.clear();
+  await _reload();
+}
+
+async function _reload() {
+  let metas = [];
+  try { metas = await _loadMetas(); } catch (_e) { metas = []; }
+  _all = Object.assign({ metas }, _emptyDetail());
+  _renderList();          // fixe _sel si la sélection a disparu
+  await _loadSelected();
+}
+
+// Charge les tables de détail de la session sélectionnée, puis rend la partie
+// droite. Une sélection plus récente pendant l'attente annule le rendu.
+async function _loadSelected() {
+  const sid = _sel;
+  let rows = _emptyDetail();
+  try { rows = await _loadSession(sid); } catch (_e) { rows = _emptyDetail(); }
+  if (sid !== _sel || !_all) return;
+  DETAIL_STORES.forEach((k) => { _all[k] = rows[k]; });
+  _renderGames();
+  _renderRight();
+}
+
+export async function openJournal() {
+  // Sur mobile (modales plein écran empilées), fermer les Options avancées ;
+  // sur desktop les deux fenêtres flottent côte à côte — fermer les logs ne
+  // doit pas faire quitter les options (rapport forum).
+  let wide = false;
+  try { wide = window.matchMedia('(min-width:900px) and (min-height:600px)').matches; } catch (_e) {}
+  if (!wide && typeof window.closeAdvancedOptions === 'function') {
+    try { window.closeAdvancedOptions(); } catch (_e) {}
+  }
+  const m = _ensureModal();
+  _analyze = false;
+  _selGame = 0;
+  _anHand = 0;
+  _applyTexts();
+  await purgeOldSessions();
+  await _reload();
+  m.style.display = '';
+  _syncFloat(m);
+}
+
+// Fenêtre flottante (desktop) : déplaçable par le titre, redimensionnable,
+// contenu zoomé avec la taille — via le système générique de pokerth.js
+// (_enableFloating / _disableFloating, comme chat, log et options avancées).
+// Sur mobile / petit écran on garde le modal centré.
+function _syncFloat(m) {
+  const card = m.querySelector('.jr-card');
+  if (!card) return;
+  let wide = false;
+  try { wide = window.matchMedia('(min-width:900px) and (min-height:600px)').matches; } catch (_e) {}
+  const canFloat = wide && typeof window._enableFloating === 'function';
+  if (canFloat) {
+    m.classList.add('jr-float');
+    const defW = Math.min(860, window.innerWidth - 40);
+    const defH = Math.min(600, window.innerHeight - 60);
+    window._enableFloating(card, {
+      key: 'pth_win_jr',
+      handle: document.getElementById('jr-title'),
+      resizable: true,
+      zoom: true,
+      defW, defH,
+      minW: 430, minH: 340,
+      defLeft: Math.max(8, Math.round((window.innerWidth - defW) / 2)),
+      defTop: Math.max(8, Math.round((window.innerHeight - defH) / 2)),
+    });
+  } else {
+    m.classList.remove('jr-float');
+    if (typeof window._disableFloating === 'function') window._disableFloating(card);
+  }
+  _applyListW();
+}
+
+export function closeJournal() {
+  const m = document.getElementById('jr-modal');
+  if (m) m.style.display = 'none';
+  _multi = false; _anchor = null; _marked.clear();
+}
+
+if (typeof window !== 'undefined') {
+  window._openJournal = openJournal;
+  window._closeJournal = closeJournal;
+  // Purge de rétention en tâche de fond au chargement.
+  setTimeout(() => { purgeOldSessions(); }, 4000);
+}

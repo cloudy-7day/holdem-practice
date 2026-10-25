@@ -1,0 +1,89 @@
+/* Teaching-only small-screen layout. The original desktop geometry stays intact. */
+@media (max-width:760px), (max-width:1000px) and (max-height:500px) {
+ html:has(body.tc-active),body.tc-active{height:100%;min-height:100%;overflow:hidden}
+ body.tc-active #s-game{height:100dvh!important;min-height:0!important;overflow:hidden!important}
+ body.tc-active #s-game .game-area{position:relative!important;flex:1!important;min-height:0!important;padding:0!important;overflow:hidden!important}
+ body.tc-active #g-table-zone{position:absolute!important;inset:48px 0 var(--tc-action-height,176px)!important;width:auto!important;height:auto!important;overflow:visible!important;min-height:0!important}
+ body.tc-active #g-zoom-layer{position:absolute!important;inset:0!important;transform:none!important}
+ body.tc-active #g-table-scaler{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;transform:none!important;--comm-scale:.72!important}
+ body.tc-active .felt-oval{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;transform:none!important;background:transparent!important;border:0!important;box-shadow:none!important}
+ body.tc-active #g-comm{position:absolute!important;left:50%!important;top:calc(56% + 35px)!important;transform:translate(-50%,-50%)!important;gap:5px!important;--comm-scale:.72!important}
+ body.tc-active #g-comm .pk{width:40px!important;height:56px!important}
+ body.tc-active #g-potbar{position:absolute!important;left:50%!important;top:calc(56% - 15px)!important;transform:translate(-50%,-50%)!important;max-width:90%!important;font-size:14px!important}
+ body.tc-active #g-seats{transform:none!important}
+ body.tc-active #g-seats .seat{position:absolute!important;top:var(--tc-seat-y)!important;left:var(--tc-seat-x)!important;width:calc(25% - 6px)!important;max-width:none!important;min-width:0!important;height:63px!important;padding:0!important;transform:none!important;opacity:1!important;--sscale:1!important}
+ body.tc-active #g-seats .seat-plate{box-sizing:border-box!important;position:relative!important;display:flex!important;flex-direction:column!important;justify-content:center!important;align-items:center!important;width:100%!important;height:59px!important;min-height:0!important;max-width:none!important;padding:3px 2px!important;transform:none!important;border:1px solid #718665!important;border-radius:7px!important;background:#122b20ed!important;gap:1px!important}
+ body.tc-active #g-seats .seat.folded .seat-plate{background:#1a2e27ed!important;border-color:#465a4f!important}
+ body.tc-active #g-seats .seat.folded .seat-name{color:#a9b7af!important}
+ body.tc-active #g-seats .seat.active .seat-plate,body.tc-active #g-seats .seat.tc-turn .seat-plate{border:2px solid #f3d36b!important;box-shadow:0 0 7px #f3d36b66!important}
+ body.tc-active #g-seats .seat-avatar,body.tc-active #g-seats .seat:not(.me) .seat-holecards .pk,body.tc-active #g-seats .seat-foot,body.tc-active #g-seats .seat-bet-socle{display:none!important}
+ body.tc-active #g-seats .seat-info{display:flex!important;flex-direction:column!important;align-items:center!important;position:static!important;width:100%!important;gap:1px!important}
+ body.tc-active #g-seats .seat-name{font:600 11px/14px system-ui!important;max-width:100%!important;width:100%!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;text-align:center!important}
+ body.tc-active #g-seats .seat-money{font:700 12px/15px system-ui!important;color:#e8cf75!important;max-width:100%!important}
+ body.tc-active #g-seats .seat:not(.me) .seat-holecards{display:contents!important}
+ body.tc-active #g-seats .seat-action-badge,body.tc-active #g-seats .seat-action-label{position:static!important;display:block!important;font:600 11px/14px system-ui!important;transform:none!important;max-width:100%!important;padding:0 3px!important;min-height:14px!important;order:3!important;border:0!important;box-shadow:none!important;white-space:nowrap!important}
+ body.tc-active #g-seats .seat-pucks{position:absolute!important;right:1px!important;top:-5px!important;left:auto!important;bottom:auto!important;transform:none!important;gap:1px!important;z-index:4!important}
+ body.tc-active #g-seats .seat-pucks img{width:17px!important;height:17px!important}
+ body.tc-active #g-seats .seat.me{left:50%!important;top:auto!important;bottom:5px!important;width:170px!important;height:68px!important;transform:translateX(-50%)!important}
+ body.tc-active #g-seats .seat.me .seat-plate{height:68px!important;display:grid!important;grid-template-columns:1fr 85px!important;padding:4px!important}
+ body.tc-active #g-seats .seat.me .seat-info{grid-column:1!important;grid-row:1!important}
+ body.tc-active #g-seats .seat.me .seat-holecards{position:static!important;display:flex!important;grid-column:2!important;grid-row:1!important;gap:3px!important;transform:none!important;width:auto!important;height:auto!important}
+ body.tc-active #g-seats .seat.me .seat-holecards .pk{width:36px!important;height:51px!important;min-width:36px!important;transform:none!important;font-size:16px!important}
+ body.tc-active #s-game .player-bar{display:none!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone{position:absolute!important;left:0!important;right:0!important;bottom:0!important;transform:none!important;width:100%!important;max-width:100%!important;padding:6px 8px calc(6px + env(safe-area-inset-bottom))!important;box-sizing:border-box!important;background:#10261ff5!important;z-index:35!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .action-grid{width:100%!important;gap:4px!important;padding:0!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .action-wrap,html body.tc-active #s-game#s-game#s-game .my-zone .action-bar{width:100%!important;max-width:none!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .bet-row{gap:8px!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .raise-amt-field{font-size:16px!important;height:44px!important;min-height:44px!important;width:88px!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .raise-slider{height:44px!important;min-height:44px!important;touch-action:pan-y}
+ html body.tc-active #s-game#s-game#s-game .my-zone .mid-row{gap:5px!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .pct-row{display:flex!important;gap:5px!important;flex:1!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .btn-pct,html body.tc-active #s-game#s-game#s-game .my-zone .btn-allin{min-width:44px!important;width:auto!important;flex:1!important;height:44px!important;min-height:44px!important;font-size:13px!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .act-buttons-row{gap:6px!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .act-buttons-row .btn-action{height:50px!important;min-height:50px!important;font-size:15px!important;padding:3px!important;letter-spacing:0!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .act-key{display:none!important}
+ body.tc-active .g-felt-corner{top:0!important;gap:4px!important}
+ body.tc-active .g-felt-tl{left:5px!important}body.tc-active .g-felt-tr{right:5px!important}
+ body.tc-active .g-felt-btn{width:44px!important;height:44px!important;min-width:44px!important}
+ body.tc-active #g-zoom-ctrl{display:none!important}
+ body.tc-active .tc-panel{top:calc(var(--tc-header-height,80px) + 3px)!important;right:102px!important;max-width:calc(100vw - 204px)!important}
+ body.tc-active .tc-head{gap:3px!important;flex-wrap:nowrap!important}
+ body.tc-active .tc-head button{min-height:44px!important;padding:3px 6px!important;font-size:11px!important}
+ body.tc-active .tc-speech{max-width:150px!important;font-size:11px!important;padding:6px 8px!important}
+}
+@media(max-width:360px){body.tc-active #g-seats .seat-name{font-size:10px!important}body.tc-active #g-comm .pk{width:35px!important;height:49px!important}}
+@media(max-width:1000px) and (max-height:500px) and (orientation:landscape){
+ body.tc-active #g-table-zone{right:306px!important;bottom:0!important;top:48px!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone{left:auto!important;right:0!important;width:300px!important;max-height:calc(100dvh - 85px)!important;overflow-y:auto!important}
+ body.tc-active #g-seats .seat{height:55px!important}body.tc-active #g-seats .seat-plate{height:51px!important}
+ body.tc-active #g-comm{top:calc(54% + 35px)!important}body.tc-active #g-potbar{top:calc(54% - 9px)!important}
+ body.tc-active #g-seats .seat.me{left:50%!important;bottom:0!important;height:60px!important}body.tc-active #g-seats .seat.me .seat-plate{height:60px!important}
+}
+@media(max-width:760px){body.tc-active #g-comm{top:calc(50% + 35px)!important}body.tc-active #g-potbar{top:calc(50% - 5px)!important}}
+@media (max-width:760px), (max-width:1000px) and (max-height:500px){
+ body.tc-active #s-game .game-area{width:100%!important;max-width:none!important}
+ body.tc-active #g-seats .seat-name{white-space:normal!important;display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:12px!important;max-height:24px!important;overflow-wrap:anywhere!important}
+ body.tc-active #g-seats .seat.folded .seat-info,body.tc-active #g-seats .seat.folded .seat-holecards{opacity:1!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .action-grid{display:flex!important;flex-direction:column!important;min-width:0!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .bet-row,html body.tc-active #s-game#s-game#s-game .my-zone .mid-row,html body.tc-active #s-game#s-game#s-game .my-zone .act-buttons-row{display:flex!important;width:100%!important;min-width:0!important;box-sizing:border-box!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .action-wrap{min-width:0!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .act-buttons-row .btn-action{flex:1!important;min-width:0!important}
+ html body.tc-active #s-game#s-game#s-game .my-zone .raise-slider{width:0!important;flex:1!important;min-width:0!important}
+ body.tc-active #g-seats .seat-self-strip{display:none!important}
+}
+@media(max-width:1000px) and (max-height:500px) and (orientation:landscape){html body.tc-active #s-game#s-game#s-game .my-zone .mid-row .btn-allin{flex:1!important}html body.tc-active #s-game#s-game#s-game .my-zone .mid-row .pct-row{flex:3!important}}
+
+@media (max-width:760px), (max-width:1000px) and (max-height:500px){body.tc-active #g-seats .seat.folded .seat-plate{opacity:1!important;filter:none!important}}
+@media(max-width:360px){body.tc-active #g-potbar[data-street]::after{bottom:calc(100% - 2px)!important;font-size:9px!important;letter-spacing:0!important}}
+@media (max-width:760px), (max-width:1000px) and (max-height:500px){
+ body.tc-active .g-felt-tl{display:none!important}
+ body.tc-active .tc-panel{left:8px!important;right:102px!important;max-width:none!important;width:auto!important}
+ body.tc-active .tc-head{justify-content:flex-end!important}
+}
+@media(max-width:360px){
+ body.tc-active #g-potbar{top:50%!important}
+ body.tc-active #g-potbar[data-street]::after{left:calc(100% + 8px)!important;top:50%!important;bottom:auto!important;transform:translateY(-50%)!important;font-size:9px!important;letter-spacing:0!important}
+ body.tc-active #g-potbar[data-street]::before{display:none!important}
+}
+/* The decorative deck otherwise covers the top edge of community cards. Deal flights remain enabled. */
+@media (max-width:760px), (max-width:1000px) and (max-height:500px){body.tc-active #g-potbar[data-street]::before{display:none!important}}

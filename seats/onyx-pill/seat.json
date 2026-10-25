@@ -1,0 +1,21 @@
+{
+  "name": "Onyx Pill",
+  "by": "PokerTH Development Team",
+  "swatch": "#2a2a2a",
+  "traits": {
+    "holePlate": true,
+    "betOut": true,
+    "pucksSide": true,
+    "flagInfo": false,
+    "timerRect": false,
+    "timerBar": true,
+    "winnerBadge": true,
+    "selfStrip": true,
+    "selfBigCards": true,
+    "badgeOnCards": true,
+    "qmlSelf": true,
+    "narrowByOrient": false,
+    "qmlStruct": true,
+    "avatarOverlay": true
+  }
+}

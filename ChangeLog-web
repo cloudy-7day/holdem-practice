@@ -1,0 +1,1772 @@
+2026-10-25 version 2.1.10-web.332:
+- bugfix: the « your turn » sound, notification and vibration now play once per turn, and no longer again in the middle of your turn (for example when switching the big-blind display)
+
+2026-10-25 version 2.1.10-web.331:
+- bugfix: a table or lobby could freeze after an unexpected error in a received message; the game now carries on
+- bugfix: after an automatic reconnection, server announcements, reactions and settings sync work again, and being removed by the server brings you back to the connection screen
+- bugfix: a server address typed in the LAN form is no longer replaced by the default one before you connect
+- bugfix: emoji inside a link in the chat no longer break the link
+- bugfix: the turn and river cards show in the right place after rejoining a hand or when watching from mid-hand
+- bugfix: the street name under the board follows a language change straight away
+- bugfix: Fold / Check from a « your turn » notification goes to the right tab when several are open
+
+2026-10-25 version 2.1.10-web.330:
+- bugfix: security fixes in the web client's server (uploaded table, deck and seat packs, the leaderboard, the music switch, connections left behind)
+
+2026-10-25 version 2.1.10-web.329:
+- bugfix: the web client's server could stop for everyone when a connection it refused sent a malformed message; it now keeps running
+- bugfix: Serbian: the hand rankings, how-to-play and glossary pages are now in Cyrillic like the rest of the app
+
+2026-10-24 version 2.1.10-web.327:
+- improvement: the Arena (tournaments, cups and medals) is now an app of its own: when this site is linked to one, /arena opens it, and « Play on the web client » on a tournament's page brings your personal code here so your witness reports count
+
+2026-10-24 version 2.1.10-web.322:
+- new: Arena: one account for everything — the site's admin gives a role (organizer, referee, read only) to a player account; that player signs in once with his PokerTH nickname and finds « Organize » in the menu
+- new: Arena: « My account » shows my tournaments and cups, my tickets and groups, keeps my language and theme on every device, lists the devices signed in, and can close the account
+
+2026-10-24 version 2.1.10-web.321:
+- new: Arena's home page shows what is on: tables playing now on the LAN servers, the site's tournaments, the community events (BBC, WEC game of the evening and finals, Monthly Cup) and the last winners, results, cups and groups — the sections and their order are chosen by the site's admin
+
+2026-10-24 version 2.1.10-web.320:
+- new: Arena is now an app you can install on a phone or a computer: a menu (Home, Tournaments, Cups, Groups, Sign in or My account), a bar at the bottom on phones, a language list with flags and a search, a sign-in page and a « My account » page
+
+2026-10-24 version 2.1.10-web.316:
+- improvement: the tournaments page is now called Arena (tournaments, cups and medals) and lives at /arena
+
+2026-10-24 version 2.1.10-web.314:
+- new: tournaments (beta): every tournament and cup has an image, shown at the top of its page, on its card in the list and when its link is shared
+
+2026-10-24 version 2.1.10-web.313:
+- bugfix: « Create a table »: a manual blinds order is limited to 30 levels of at most 1 000 000, and « raise blinds by » to 1 000 000, as the game server requires (above that, the server refused the table and closed the connection)
+- improvement: tournaments (beta): the tournament director opens its tables with the same choices as « Create a table »: game styles, community templates (BBC, Monthly Cup, WEC) and manual blinds order
+
+2026-10-24 version 2.1.10-web.312:
+- bugfix: if the page is still loading when you tap a button, the loading screen with « Retry » now reliably comes back instead of a form that ignores your taps
+
+2026-10-24 version 2.1.10-web.311:
+- new: tournaments (beta): medals for the first three of a tournament (Club or Official, at least 4 players) and of a cup; each player has a page on /tournament with their medals and results, and medals show next to the names in rankings
+
+2026-10-24 version 2.1.10-web.305:
+- new: tournaments (beta): at a table opened by this site's tournament director, your client sends the director a summary of the game (the stacks at each hand and the winner, never your cards) so that the result can be checked; a line in the chat says so the first time, and Advanced options › Network lets you turn it off
+
+2026-10-23 version 2.1.10-web.302:
+- improvement: the waiting room works exactly like the official client again: it shows the lobby chat and private messages, while table chat lines wait for the game screen, without a sound in the meantime
+
+2026-10-23 version 2.1.10-web.301:
+- bugfix: in the waiting room before a game starts, messages written in the table chat (by players of the official client, or by a tournament director) now appear in the chat; until now only their sound played
+
+2026-10-23 version 2.1.10-web.291:
+- bugfix: Logs › « Analyse on pokerth.net » now opens the analysis of the game you picked (or the last one of the session), not always the first game of the log
+- improvement: after the upload the analysis link appears under the buttons with « Copy link », ready to paste in the BBC or WEC shoutbox; changing the game updates the link without a new upload
+
+2026-10-23 version 2.1.10-web.286:
+- improvement: in Advanced options, the « Assistance » section is no longer called « Help » in many languages, so it is not mixed up with the Help menu
+
+2026-10-23 version 2.1.10-web.284:
+- bugfix: Malay is now real Malaysian Malay throughout the app, the help and the Ace's tips (many texts were in Indonesian)
+
+2026-10-22 version 2.1.10-web.281:
+- bugfix: the help now names the settings sections exactly as the options window shows them, in every language
+- bugfix: Serbian is now written entirely in Cyrillic, including the language name in the language list
+- improvement: Latin-American Spanish: « ¡Ganaste! » at the end of a won game
+
+2026-10-22 version 2.1.10-web.280:
+- new: game announcements now work with screen readers: in the Accessibility window choose Off, Built-in voice or Screen reader; with Screen reader, NVDA, JAWS, VoiceOver or TalkBack read the actions, your turn and the winner in their own voice, without two voices talking at once
+- improvement: the voice option moved from Advanced options to the Accessibility window; if you had it on, nothing changes for you
+
+2026-10-22 version 2.1.10-web.279:
+- improvement: the rules, FAQ and guide pages now wear the PokerTH colours of the app and the pokerth.net forum: slate background, the start screen's flames behind the title, forum-style section bars and a red Play button
+
+2026-10-22 version 2.1.10-web.278:
+- new: the Ace knows twelve new dances: the wave and tai-chi on slow songs, pop-lock and the dab on mid-tempo songs, running man, macarena, swing and cabbage patch on fast songs, shuffle, pogo, cancan and jumpstyle on very fast songs
+
+2026-10-22 version 2.1.10-web.277:
+- improvement: the Ace dances more smoothly to the music: his arms and legs flow from one move to the next instead of jumping, and the dance goes on without a pause between bars
+- improvement: the Ace keeps each dance a little longer (two bars) before switching, and no longer spins back and forth on a song whose tempo sits between two styles
+
+2026-10-22 version 2.1.10-web.276:
+- improvement: Ace Runner: during All-In a gold bar over the Ace shows the time left; it turns red and flashes for the last second and a half, and the phone gives a short buzz
+
+2026-10-22 version 2.1.10-web.275:
+- improvement: Ace Runner starts slower and with few obstacles, then they come closer level after level
+- new: Ace Runner: as the blinds go up, flying cards come at different heights: low ones to jump over, high ones to stay under, and later some drift up and down
+- improvement: mini-games on a touch screen: bigger ▲ ▼ buttons, as tall as the game when the phone is sideways, so a tap no longer lands beside them
+
+2026-10-22 version 2.1.10-web.274:
+- new: Ace Runner: a rare blue shield chip, the insurance, takes one hit for the Ace (🛡️ in the corner while you hold it)
+- new: Ace Runner: skim past an obstacle without touching it for +10 m
+- improvement: Ace Runner: the blind level is always shown next to the distance
+- improvement: Ace Runner: a jump pressed just before landing is no longer lost, and obstacles always leave room to land and jump again, whatever the speed
+- improvement: Ace Runner: the phone vibrates on a crash, on blinds up and when the insurance pays (if vibration is on)
+
+2026-10-22 version 2.1.10-web.273:
+- improvement: Ace Runner speeds up more gently: each new blind level is only a little faster and the change is smooth, the top speed is lower and comes after about two minutes instead of under one
+
+2026-10-22 version 2.1.10-web.272:
+- improvement: on a LAN or dedicated server, Ace's Help speaks of that server: what its lobby shows (no ranked games there), free tables and game types without any word about ranked games or the pokerth.net account, and no cup bubbles
+
+2026-10-22 version 2.1.10-web.271:
+- bugfix: iPad app: no more band at the bottom of the screen after an update or after « Play now » on a guide page (same fix as on iPhone)
+
+2026-10-22 version 2.1.10-web.270:
+- new: waiting for your table in another tab? The tab title blinks and, if you allowed it with « 🔔 Notify me » in the waiting room, a notification tells you when a ranked table needs one more player and when your table starts
+- improvement: the browser no longer asks for notifications as soon as you reach the lobby, only when you tap « 🔔 Notify me »
+
+2026-10-22 version 2.1.10-web.269:
+- new: after a game, the Ace offers once to put PokerTH on your home screen (full screen, own icon, instant start, training offline) — in one tap where the browser allows it, otherwise he shows how
+
+2026-10-22 version 2.1.10-web.268:
+- improvement: for guests, the Ace explains what a free account brings (ranked games, points, seasonal ranking, chat, flag) and, after « Create an account », how to come back and log in with it
+
+2026-10-22 version 2.1.10-web.266:
+- improvement: the Ace's tour of the « Create a game » page is now short (game style, game type, Create); « Full tour » at the end still explains every field
+
+2026-10-22 version 2.1.10-web.265:
+- improvement: first visit: the Ace now asks « First time on PokerTH? » before anything else, with « Show me » or « I already play »; his welcome is shorter
+- improvement: the backup of your settings is no longer the first question on a new browser: offered at a later visit to new players, and right away (« Had a backup? ») to players who already play
+
+2026-10-22 version 2.1.10-web.264:
+- improvement: Ace's Help no longer repeats a tip at every visit when you simply carried on (picked a mode, connected, started the game, closed the window): it counts as read
+
+2026-10-22 version 2.1.10-web.263:
+- bugfix: if the app has not finished starting, tapping the home screen no longer does nothing: the « Unstable connection — Retry » screen comes back
+
+2026-10-22 version 2.1.10-web.262:
+- improvement: iPhone app: the home screen footer (links, version) sits closer to the bottom edge
+
+2026-10-22 version 2.1.10-web.261:
+- improvement: About window: on a phone the tabs show their full names and scroll sideways instead of being cut
+
+2026-10-22 version 2.1.10-web.260:
+- bugfix: after an update, a mix of old and new files no longer leaves the gamepad or another feature broken: the app reloads once on its own at startup
+
+2026-10-21 version 2.1.10-web.259:
+- bugfix: iPhone: the community cards no longer flicker (blank for an instant) during a hand
+
+2026-10-21 version 2.1.10-web.249:
+- bugfix: iPhone app: About, dialogs and other full-screen windows also reach the bottom of the screen after an update
+
+2026-10-21 version 2.1.10-web.248:
+- bugfix: iPhone app: no more band at the bottom of the screen after an update or after « Play now » on a guide page
+
+2026-10-21 version 2.1.10-web.247:
+- bugfix: in a ranked waiting room, Ace's Help keeps the player counter (x/10) outlined when new players arrive
+
+2026-10-21 version 2.1.10-web.246:
+- bugfix: on servers without search-engine indexing, the guide pages opened from About now follow your interface language instead of always showing English
+
+2026-10-21 version 2.1.10-web.243:
+- new: the About window has a « Poker guides » tab with links to every guide page: rules, hand rankings, starting hands, odds, glossary, FAQ and more
+
+2026-10-21 version 2.1.10-web.240:
+- improvement: the guide pages (rules, hand rankings, FAQ, odds, glossary…) have a new look in the colours of the PokerTH table, with the Play now button always at the top
+- improvement: the FAQ and the glossary are grouped by theme
+
+2026-10-21 version 2.1.10-web.233:
+- new: « Host your own server » guide page, in every language: the PokerTH server and the web client on your own machine, the install commands, Raspberry Pi, and the QML and widget clients joining the same tables
+
+2026-10-21 version 2.1.10-web.229:
+- new: « Accessibility » guide page, in every language: interface size, high contrast, four-colour decks, table magnifier, keyboard, gamepad and TV remote, voice announcements and vibration
+
+2026-10-20 version 2.1.10-web.227:
+- new: « Starting hands » guide page, in every language: all 169 starting hands in one chart, the top twenty against one, three and six opponents, and how the ranking changes when more players are in the pot
+
+2026-10-20 version 2.1.10-web.225:
+- new: three new guide pages, in every language: « Play poker with friends », « Poker odds » with an odds calculator (your cards, the board, an opponent or up to nine) and « Play against the computer »
+- new: the « Play » button of « Play against the computer » opens the app straight on Local / training
+
+2026-10-20 version 2.1.10-web.223:
+- new: Poker Drop in the Ace's arcade: drop your cards in a 7 × 6 grid, five in a row make a poker hand — against the Ace, with a friend on the same screen or in the daily challenge, on points or in sudden death
+
+2026-10-20 version 2.1.10-web.202:
+- bugfix: after the connection came back on its own (computer waking up, network change), you could be removed from the table for inactivity about 20 minutes later even while playing and after answering the warning
+
+2026-10-20 version 2.1.10-web.201:
+- improvement: the game log also starts empty at every new game, as in the official client
+
+2026-10-20 version 2.1.10-web.200:
+- improvement: the game chat starts empty at every new game, as in the official client: messages from previous games no longer stay above it
+
+2026-10-20 version 2.1.10-web.199:
+- bugfix: playing with a gamepad or a TV remote no longer gets you removed from the game for inactivity after about 20 minutes
+
+2026-10-20 version 2.1.10-web.198:
+- bugfix: in heads-up, the SB and BB pucks were swapped once a bigger table got down to two players: the dealer is now shown as small blind, as at the official tables
+
+2026-10-19 version 2.1.10-web.166:
+- improvement: on your first visit, the look the server picked for newcomers (palette, table, cards, seats, interface size, contrast, sound) is applied; anything you have already chosen yourself is never changed
+- bugfix: the default style picked by the server for newcomers was never applied on a first visit
+
+2026-10-19 version 2.1.10-web.157:
+- improvement: the privacy page is the same, in your language, on every server running the web client, including LAN and self-hosted ones
+
+2026-10-19 version 2.1.10-web.156:
+- improvement: « Privacy » at the bottom of the login screen opens the privacy page in your language, in the same format as the FAQ and the rules
+
+2026-10-19 version 2.1.10-web.155:
+- improvement: the « Your pokerth.net account » section of the privacy policy now matches the pokerth.net policy: what the account holds, the connection data the game server processes for every player, and who to write to (webmaster@pokerth.net) to have an account deleted
+
+2026-10-19 version 2.1.10-web.154:
+- improvement: the privacy policy has a new section about your pokerth.net account: what pokerth.net keeps, a link to its own privacy policy, and how your password travels when you log in (passed on, never kept)
+
+2026-10-19 version 2.1.10-web.153:
+- improvement: the privacy policy now says, in every language, what is counted when you connect and log in, and how a server you propose for the LAN list is handled; the privacy page of the website is translated too
+
+2026-10-19 version 2.1.10-web.150:
+- bugfix: in the app installed on an iPhone or iPad, saving your avatar no longer reloads the app; the avatar maker's menu now offers « Share… », whose « Save Image » entry puts the avatar in your Photos
+
+2026-10-19 version 2.1.10-web.147:
+- bugfix: on an unsteady connection, the app no longer fails to start because one of its files was briefly unavailable from the server; the copy already saved on your device is used instead
+
+2026-10-19 version 2.1.10-web.145:
+- bugfix: after a game in training mode, connecting to a LAN server or to PokerTH.net works again without reloading the page (the connection used to drop at once)
+
+2026-10-18 version 2.1.10-web.140:
+- bugfix: when the hand-history database component failed to download (a brief network drop), the .pdb export and the automatic log saving stayed stuck for the rest of the session; the download is now retried and a later attempt works again
+
+2026-10-18 version 2.1.10-web.136:
+- bugfix: on a phone with the Extra large interface size, the big community cards no longer cover the players on the sides of a full table; the side seats now sit against the edges of the screen
+
+2026-10-18 version 2.1.10-web.135:
+- bugfix: on a computer, the Large and Extra large interface sizes enlarge the Fold, Call and Raise buttons too (they stayed at their standard size), and the table makes room for the bigger bar
+- bugfix: on a phone, a long connection notice on the table (« Connection problems — The server is not responding… ») wraps on two lines instead of running off both sides of the screen
+- bugfix: Escape in the LAN server list of the login form closes the list only; it also took you back to the choice of mode
+
+2026-10-17 version 2.1.10-web.123:
+- improvement: the statistics now count how many logins on pokerth.net are guests and how many use an account, and how many games are opened on each server of the LAN list; only totals per day, never a name or a server address (see the privacy page)
+
+2026-10-17 version 2.1.10-web.122:
+- improvement: your browser's time zone is now also sent when you connect, so the server operator can see how many players are online in each country right now; it is kept as a country only, for as long as you are connected, and never stored (see the privacy page)
+
+2026-10-17 version 2.1.10-web.112:
+- bugfix: the guest, account and LAN notices stay in your language after the server operator edits the text of another language; Latin-American Spanish gets the Spanish text instead of a machine translation
+
+2026-10-17 version 2.1.10-web.110:
+- bugfix: a feature the server operator has switched off now really stops (error reports, polls, seat stats, hand statistics, chat glossary, keyboard navigation, back-button guard, .pdb files, splash screen, table zoom) — before, only its option was greyed out
+- bugfix: the server's default settings (vibration, voice, assistance, amounts in big blinds) now apply from your very first visit, not the second
+- bugfix: a feature switched off on the server is no longer saved as « off » in your account settings
+
+2026-10-17 version 2.1.10-web.108:
+- improvement: Latin-American Spanish: two advanced options now say « póker », like the rest of the translation
+
+2026-10-17 version 2.1.10-web.107:
+- improvement: a dead connection is noticed much sooner (about 30 s at the table, even on your own turn), with a « Connection problems » notice while the server does not answer, as in the official client
+
+2026-10-17 version 2.1.10-web.106:
+- bugfix: a table invitation no longer stays on screen after you log out or log in again; logging out declines it, so the host gets an answer
+
+2026-10-17 version 2.1.10-web.105:
+- improvement: a player getting their seat back at a running table stays listed under both sessions until the rejoin is done, as in the official client
+
+2026-10-17 version 2.1.10-web.104:
+- bugfix: a second connection drop while you are getting your seat back at a running table no longer loses the seat
+
+2026-10-17 version 2.1.10-web.103:
+- bugfix: a private message to a player who had just reconnected was sent to their old, dead session and refused — it now reaches the player
+- bugfix: a player who reconnects too quickly is no longer listed twice in the players list
+- bugfix: a private-message partner who has left the lobby is shown as away again
+
+2026-10-16 version 2.1.10-web.102:
+- improvement: the Mini-games page lists its games directly, without a category
+
+2026-10-16 version 2.1.10-web.101:
+- improvement: the Ace's arcade is now called « Mini-games », with its games just for fun; the « Learn poker » lessons are removed and Who Wins? is back with the other games
+
+2026-10-16 version 2.1.10-web.100:
+- new: lesson 6 of « Learn poker », Who's Ahead?: two hands all-in before the flop — guess your chances on the bar, the deal is played out 4,000 times
+
+2026-10-16 version 2.1.10-web.99:
+- new: lesson 5 of « Learn poker », Call or Fold?: you are on a draw and the Ace bets — set your chances against the pot odds, then see the sums
+
+2026-10-16 version 2.1.10-web.98:
+- new: lesson 4 of « Learn poker », Count the Outs: you are on a draw, how many cards complete it? Then the outs are shown, and the rule of 4 and 2 next to the exact odds
+
+2026-10-16 version 2.1.10-web.97:
+- new: lesson 2 of « Learn poker », Find the Nuts: five cards on the board, four pairs of hole cards — which one makes the best hand possible?
+
+2026-10-16 version 2.1.10-web.96:
+- new: lesson 1 of « Learn poker », Open or Fold?: everyone folded to you, open or fold from your position; the chart of each position shows the hands to play
+
+2026-10-16 version 2.1.10-web.95:
+- improvement: the Ace's arcade has two shelves: « Learn poker », a path of lessons to take in order, and « Just for fun »
+
+2026-10-16 version 2.1.10-web.94:
+- new: The Ace's Bluff in the Ace's arcade: heads-up on the river, he bets — Call or Fold? Learn his tells, they change at every table
+
+2026-10-16 version 2.1.10-web.93:
+- new: Higher or Lower in the Ace's arcade: guess the next card, watch the odds on each button, and cash out before your luck turns
+
+2026-10-16 version 2.1.10-web.92:
+- new: Who Wins? in the Ace's arcade: a board, two hands, pick the winner (or the split pot) against the clock, and learn to read kickers
+
+2026-10-16 version 2.1.10-web.91:
+- new: Video Poker in the Ace's arcade: Jacks or Better, 20 hands, a daily challenge, and double or nothing against the Ace
+
+2026-10-16 version 2.1.10-web.90:
+- improvement: House of Cards: the place of the next card is lit, with a mark on the rail to drop on
+- improvement: House of Cards is harder: a faster rail that swings like a pendulum from the second blind level, tighter places, and four misses bring it down
+
+2026-10-16 version 2.1.10-web.89:
+- improvement: each game of the Ace's arcade has its own picture on the arcade page, in the light or dark theme
+
+2026-10-16 version 2.1.10-web.88:
+- improvement: the Ace's arcade is now a real page, with the same header as the rest of the game (back, trophies, menu)
+- improvement: back from a game returns to the arcade page, and back from there to where you were
+- new: the rules of each game, from the « ? » of the header or the « Rules » button of its card
+- improvement: the arcade turns with your phone (portrait or landscape) and follows the light or dark theme
+
+2026-10-16 version 2.1.10-web.87:
+- new: win every training trophy and the Ace comes with a surprise (Ace's Help tells you about it in the Trophies tab)
+
+2026-10-16 version 2.1.10-web.86:
+- new: a third game in the Ace's secret arcade: a calm poker puzzle, with the same deal for everyone each day
+
+2026-10-16 version 2.1.10-web.85:
+- new: the Ace's little secret now opens an arcade with a second game, a house of cards where every floor is a poker hand
+
+2026-10-16 version 2.1.10-web.84:
+- new: a little secret has slipped into the training mode: the Ace knows a word that turns him into a runner (hint: it's what he is)
+
+2026-10-15 version 2.1.10-web.82:
+- new: play with an Android TV / Google TV remote: the arrows move a ring (at the table, over the action buttons), OK presses, holding OK opens the menu, Back goes back, Play/Pause switches between Game and Navigation, and the red, green, yellow and blue keys are Fold, Check/Call, Bet/Raise and All-In; it turns on by itself on a TV
+- improvement: the gamepad menu now has a tile to switch between Game and Navigation
+
+2026-10-15 version 2.1.10-web.81:
+- improvement: gamepad: Select now switches between Game mode (play at the table, even with the chat, history or reactions open) and Navigation mode (move around the screen and its windows), shown by a badge; when your turn comes the gamepad goes back to Game mode by itself
+- new: gamepad: Start opens a gamepad menu (chat, history, odds, statistics, reactions, poker hands, Ace's Help, settings, fullscreen, buttons, quit)
+- new: gamepad: in Navigation mode LB/RB jump between the table, the open panels and the Ace's bubble, X opens the chat and Y the Ace's Help
+- new: gamepad: an on-screen keyboard to write in the chat and any text field, with quick phrases (Good game!, Nice hand!…) sent in one press
+
+2026-10-15 version 2.1.10-web.80:
+- improvement: on a computer, the community cards no longer get smaller when players leave the table: they keep at least the size they have at a full table
+
+2026-10-15 version 2.1.10-web.79:
+- new: play with a gamepad (Xbox, PlayStation, Switch Pro and most Bluetooth pads): at the table A = Check/Call, X = Fold, Y = Bet/Raise (hold Y for All-In), LT/RT set the amount and LB/RB pick 1/3 · 1/2 · Pot; in menus and windows the D-pad moves from item to item, A selects and B goes back (B never folds)
+- new: gamepad options in Advanced options → User interface → Gamepad (on/off, vibration on your turn, Nintendo layout), and a « Gamepad » page in the help
+
+2026-10-15 version 2.1.10-web.78:
+- bugfix: phone in landscape: the bet keypad keys and its Cancel / OK buttons keep a comfortable touch height again on very low screens (they had shrunk to 26 px with the reduced action bar)
+
+2026-10-15 version 2.1.10-web.76:
+- improvement: search engines now read the supported systems (Windows, macOS, Linux, ChromeOS, Android, iOS) and the publisher of the web client
+
+2026-10-15 version 2.1.10-web.75:
+- new: a « Competitions » page (83 languages) presents the BBC, the WeCup and the Monthly Cup — what they are, how to take part, links to their calendars, results and rankings — with the coming dates, including the WeCup daily game
+
+2026-10-15 version 2.1.10-web.74:
+- improvement: help: « Three ways to play » now says it plainly — no account is needed on pokerth.net (guest login, Normal games), and a LAN or dedicated server only asks for a nickname; it also mentions the demo server and « Propose my server »
+- improvement: FAQ pages (83 languages): new answers on playing with friends, what an invitation link does, the demo server, community servers, the BBC / WeCup / Monthly Cup competitions (with their calendars, results and rankings) and how active PokerTH is
+- improvement: the FAQ, rules and guide pages now show their menu and « Play » button in the page language
+
+2026-10-15 version 2.1.10-web.73:
+- improvement: on a phone held upright, seats and community cards keep about the same size whatever the number of players: no more oversized seats with 4 players, nor a row of cards across the whole screen with 2 or 3 players
+
+2026-10-15 version 2.1.10-web.72:
+- bugfix: on a phone held upright with 4 players, the dealer / blind button of the left player no longer lands on the pot: it now fits between the two side players
+
+2026-10-15 version 2.1.10-web.71:
+- improvement: on a phone held upright, the community cards now have exactly the size of the official client (slightly smaller than in the previous version with 4 players or more)
+
+2026-10-15 version 2.1.10-web.70:
+- improvement: on a phone held upright, the community cards now use the free room in the middle of the table: they were stuck at the same small size whatever the number of players (up to almost twice as large with 2 to 4 players)
+
+2026-10-14 version 2.1.10-web.69:
+- improvement: on a computer, the community cards no longer shrink when only a few players are left at the table: they now take the same room as in the official client (up to a quarter larger with 2 to 4 players)
+
+2026-10-14 version 2.1.10-web.68:
+- improvement: Ace's Help: with an account, tap an open ranked table and the Ace says it counts for the ranking, that it starts by itself once full (with how many seats are taken), and offers to join it
+
+2026-10-14 version 2.1.10-web.67:
+- improvement: Ace's Help: tap an open table that is not ranked and the Ace says so plainly — it does not count for the ranking — and offers to join it (guests are told it is a game open to them)
+
+2026-10-14 version 2.1.10-web.66:
+- improvement: country flags: the Ace and the help now explain where they come from — your flag is the Country of your pokerth.net account (www.pokerth.net → User Control Panel → Profile → Edit profile → Country → Submit), shown from your next login
+- improvement: Ace's Help: an account holder with no flag is told once how to set it, with a button to the profile page; in « ? » mode, tapping any flag explains it
+- bugfix: the Ace's new lobby tips are now available offline in the installed app too
+
+2026-10-14 version 2.1.10-web.65:
+- improvement: Ace's Help: cup games (BBC, WEC, Monthly Cup…) get their own explanation — the cup admins open these tables and invite the players; a running one can be watched as a spectator, and for one not started yet the Ace points to the events to find out how to take part
+
+2026-10-14 version 2.1.10-web.64:
+- improvement: Ace's Help: tap a game that is already being played and the Ace explains you can watch it as a spectator (select it, then « Spectate »), and offers to take you there
+- improvement: Ace's Help: tapping tables no longer brings back the same bubble again and again — each tip comes once per table, and « Later » keeps it quiet until your next visit
+
+2026-10-14 version 2.1.10-web.63:
+- improvement: login: the advanced options (gear) now slide open and closed smoothly, like the logo
+- improvement: the avatar window fades in and out; the LAN server list unfolds softly
+- improvement: these animations are skipped when you turn animations down on your device or in the app
+
+2026-10-14 version 2.1.10-web.62:
+- improvement: login: once a mode is chosen, the big logo folds away to give the form more room; a small chip stays next to the mode name, and the logo comes back on the mode choice
+
+2026-10-14 version 2.1.10-web.61:
+- improvement: LAN login: the details of the selected server are centred, like the sentence under « Connect »
+
+2026-10-14 version 2.1.10-web.60:
+- improvement: LAN login: the server list is labelled « Server » and opens right under the field, with a coloured dot per server, on every device (it used the phone's own picker before)
+- improvement: « Propose my server » is now the last line of the server list instead of a button under it
+
+2026-10-14 version 2.1.10-web.59:
+- bugfix: login screen: coming back from « LAN / Dedicated server » to « Local / training », the LAN server list no longer stays on screen
+- bugfix: login screen: the « Encrypted connection (TLS) » box no longer shows up in « Internet / PokerTH.net » after opening the LAN advanced options
+- bugfix: login screen: ticking « Guest mode » in one mode no longer ticks it in another the first time you switch — only your nickname follows you from one mode to another
+
+2026-10-14 version 2.1.10-web.58:
+- improvement: the LAN server list is now labelled « Choose a server »
+
+2026-10-14 version 2.1.10-web.57:
+- bugfix: on a LAN server that is not shown in the list (unlisted by the admins, hidden, or an event that has ended), your results now go to that server's own leaderboard instead of the general one
+
+2026-10-14 version 2.1.10-web.56:
+- bugfix: an invitation to a LAN table now always leads to the inviter's server, even when that server is not shown in the LAN list (unlisted by the admins, or an event that has ended); it gets its own ✉ entry in the list
+
+2026-10-14 version 2.1.10-web.55:
+- new: « Propose my server »: a section for the admins only (your nickname, a note, a contact if you want — erased once they decide) and a box to confirm the server is yours or that its owner agrees
+- new: a proposed server can carry a community link (site or Discord) shown under its description
+- new: event servers: give a last day and the server leaves the LAN list by itself afterwards
+
+2026-10-14 version 2.1.10-web.53:
+- bugfix: « Propose my server » form: in the app installed on iPhone, its title no longer slides under the clock and the Send button stays reachable
+
+2026-10-14 version 2.1.10-web.51:
+- new: server announcements can be sent to the players of one LAN server only, or to all LAN servers as before
+
+2026-10-14 version 2.1.10-web.50:
+- improvement: « LAN server » list: only the server names are listed; players and the leaderboard reset period are on plain lines under the list
+
+2026-10-14 version 2.1.10-web.49:
+- improvement: « LAN server » list: the leaderboard reset period is no longer repeated in each server name; it is shown once, under the list
+
+2026-10-14 version 2.1.10-web.48:
+- new: each server of the « LAN server » list sets how many players may connect at the same time from one address (3 by default, chosen when it is proposed; only the admins can change it)
+
+2026-10-14 version 2.1.10-web.47:
+- improvement: the « LAN server » list shows when each server's leaderboard is reset, next to its name and as a pill under the list
+
+2026-10-14 version 2.1.10-web.46:
+- new: each server of the « LAN server » list has its own leaderboard, reset on the schedule chosen when it was proposed (only the admins can change it)
+
+2026-10-14 version 2.1.10-web.44:
+- improvement: on a self-hosted install, the « LAN server » list starts with this site's own server (« Local server »), already selected
+
+2026-10-14 version 2.1.10-web.43:
+- new: in LAN mode, a « LAN server » list shows the servers approved by the admins, with whether they are online and how many players are on them; pick one instead of typing an address
+- new: « Propose my server » sends your own PokerTH server to the admins after a connection test; once approved it appears in the list for everyone
+- new: Ace's Help explains the LAN server list and the proposal form
+
+2026-10-13 version 2.1.10-web.38:
+- new: in the avatar window's « Create » tab, the ⋯ button on the portrait (or a long press on it) lets you save it as an image, share it or copy it
+
+2026-10-13 version 2.1.10-web.37:
+- bugfix: an avatar made in the avatar studio (or imported from a photo) fills its square frame at the table, like the other avatars, instead of showing as a circle
+
+2026-10-12 version 2.1.10-web.35:
+- improvement: on the "Internet" button, the players online show as a figure only, like the tables and waiting players, so the line no longer wraps on a phone
+
+2026-10-12 version 2.1.10-web.34:
+- improvement: on the "Internet" button, the tables and waiting players figures get a gold and a red icon, next to the players online in green
+
+2026-10-12 version 2.1.10-web.33:
+- improvement: the pokerth.net figures are back on a line under the "Internet" button's text: players online first, in green, then tables running and players waiting; press and hold (or hover) a figure to see what it means
+
+2026-10-12 version 2.1.10-web.32:
+- new: in the lobby, just start typing to write in the chat — no need to click the message field first (can be turned off in Advanced options → Chat)
+
+2026-10-12 version 2.1.10-web.31:
+- new: in Firefox, the Ace offers to protect your settings so that Firefox never erases them on its own to free up space (the same button is in Advanced options → Backup & reset)
+- improvement: Firefox no longer asks for this permission out of the blue when the page loads
+
+2026-10-12 version 2.1.10-web.30:
+- bugfix: on a phone, "More help" opened from the create-table page now uses the full screen height instead of showing only its title and search box
+
+2026-10-12 version 2.1.10-web.28:
+- improvement: the privacy notice now says that your browser's time zone is sent with the anonymous visit counter, to count visits by country (totals per country only, no IP address)
+
+2026-10-12 version 2.1.10-web.25:
+- improvement: the figures on the "Internet" button are easier to read in dark themes
+
+2026-10-12 version 2.1.10-web.24:
+- improvement: on the "Internet" button, the pokerth.net figures are now small badges on its top-right corner: players online, tables running and players waiting (games today stays on the /live page)
+- improvement: hover a figure, or press and hold it on a touch screen, to see what it means
+
+2026-10-12 version 2.1.10-web.23:
+- improvement: the Assistance banner (hand strength and win %) is turned off at Ranking tables, so every player has the same information, as in the desktop client; the Odds tab stays available
+- bugfix: the estimated win % now counts a split pot between three or more players correctly (a third, a quarter…) instead of always half
+
+2026-10-12 version 2.1.10-web.22:
+- improvement: after "Later", a "Show me" button next to "Got it" opens the advanced options right on Backup & reset, with the backup folder button highlighted
+
+2026-10-12 version 2.1.10-web.21:
+- improvement: when you answer "Later" to the local backup offer, the Ace tells you where to find it in the advanced options
+
+2026-10-12 version 2.1.10-web.20:
+- improvement: the offer to save your settings in a folder, or to restore them, now comes from the Ace in his bubble — even with his tips turned off
+- bugfix: the local backup offer now shows in your language instead of English
+- improvement: new help section "Local backup of your settings" (Options & shortcuts)
+
+2026-10-12 version 2.1.10-web.19:
+- bugfix: the cards in the middle of the table no longer grow and shrink a little each time a player acts (very visible on a phone held sideways)
+
+2026-10-11 version 2.1.10-web.18:
+- bugfix: the buttons at the bottom of "Create a table" are no longer cut off in some languages (Greek, Hungarian, Armenian, Kyrgyz, Malayalam, Tajik) on a phone held sideways
+
+2026-10-11 version 2.1.10-web.17:
+- bugfix: in a short window on a computer, the player at the top of the table no longer slides under the bar of game information
+
+2026-10-11 version 2.1.10-web.16:
+- bugfix: on a tablet held upright, a long table name no longer runs under the buttons at the top of the table (it ends with "…"; tap it for the details)
+
+2026-10-11 version 2.1.10-web.15:
+- bugfix: on a computer or a tablet with a short screen, the login card no longer covers the Discord, pokerth.net and GitHub links
+
+2026-10-11 version 2.1.10-web.14:
+- bugfix: on a computer or a large tablet, the "Players online" list of the lobby shows the players' names again (only their initial and icons were visible)
+
+2026-10-10 version 2.1.10-web.6:
+- improvement: the Ace no longer offers his help again and again — if you do not answer, he asks at most 3 times on this device; you can still turn his help on from the login screen or Advanced options
+
+2026-10-10 version 2.1.10-web.5:
+- improvement: the anonymous visit statistics now also count which website a visit comes from, by its domain name only — the privacy page is updated
+
+2026-10-08 version 2.1.10-web.4:
+- improvement: the debug log now notes when the page goes to the background, comes back, reloads, loses the network or was stopped by the browser, and why the connection to the server ended — copy it into your report if you get disconnected
+
+2026-10-08 version 2.1.10-web.3:
+- bugfix: after reloading the page or a browser tab crash during a game running for more than 5 minutes, reconnecting puts you back at your table again instead of the lobby
+
+2026-10-07 version 2.1.10-web.2:
+- improvement: the web client changelog in « About » is now the short summary per release line instead of this build-by-build list
+
+2026-10-07 version 2.1.10-web.1:
+- bugfix: on older iPhones and iPads (iOS 16.3 and earlier) the Ace's Help loads again — it stopped with an error before showing anything
+
+2026-10-05 version 2.1.10-web.0 (current series):
+- improvement: the web client now follows PokerTH 2.1.10 and introduces itself to the server as version 2.1.10
+
+2026-10-05 version 2.1.9-web.313:
+- bugfix: the Ace's first bubble after loading the page now has its buttons in your language straight away, not in English until it is reopened
+
+2026-10-05 version 2.1.9-web.312:
+- bugfix: in « More help », the chat and diagnostic command lists fit the window again — on a phone the descriptions were pushed out of sight by a long command
+
+2026-10-05 version 2.1.9-web.311:
+- bugfix: browsing the chapters of « More help » no longer makes the window flicker as if it closed and reopened
+
+2026-10-05 version 2.1.9-web.310:
+- improvement: on a computer, the « More help » window can be moved by its title and resized from its edges like the other windows; it reopens where you left it, and the reset-windows button puts it back
+
+2026-10-05 version 2.1.9-web.309:
+- bugfix: in training, a call that puts your whole stack in now shows « All-In » instead of « Call »
+
+2026-10-05 version 2.1.9-web.308:
+- new: the help has a section on the We Cup (WeC) — who can take part, the veterans rule, conduct, the Monthly Finals and the yearly Grand Final; the Ace opens it from the WEC ranking tab, the We Cup preset and the WeC games in the Events tab
+- improvement: the WeCup is now called by its name, We Cup (WeC), everywhere in the client
+
+2026-10-04 version 2.1.9-web.306:
+- bugfix: pokerth.net admins now see the « Global notice » button in the lobby chat
+
+2026-10-04 version 2.1.9-web.301:
+- bugfix: in Large and Extra Large interface size, a long nickname no longer runs under your own stack — it is shortened with « … » and the amount always shows in full
+
+2026-10-04 version 2.1.9-web.300:
+- bugfix: switching to Large or Extra Large interface size before the flop no longer leaves the community cards as blank white rectangles
+
+2026-10-03 version 2.1.9-web.298:
+- bugfix: on the login screen, the ☰ links menu now opens in front of an open window (ranking, forum…), like the ⚙ menu
+
+2026-10-03 version 2.1.9-web.286:
+- improvement: « More help » is laid out like the help window again, in the colours of the Ace’s bubble — search on top, the chapters in a column on the left (an icon strip on phones) and the whole chapter on the right; a search result opens its chapter at that section
+
+2026-10-03 version 2.1.9-web.285:
+- new: Advanced options → Assistance → « The Ace’s antics: scenes, dances and reactions » — untick it and the Ace no longer plays his scenes, dances to the music or reacts in the lobby (Ace’s Help and its tips stay as they are). On by default
+
+2026-10-03 version 2.1.9-web.284:
+- improvement: « More help » — a topic now opens inside the help panel itself, whole text at once and scrollable, with the search and the chapters still there and « All topics » to go back (it used to shrink into a small bubble read page by page)
+
+2026-10-03 version 2.1.9-web.283:
+- improvement: inviting a player to your table is now offered only at invite-only tables, like the official client (no more invitations at Normal, registered-only or Ranking tables)
+
+2026-10-02 version 2.1.9-web.282:
+- improvement: the Ace has more dances and changes them every bar — on slow songs a slow dance with floating hearts, reggae and a waltz (besides the sway); on mid-tempo songs the robot, a moonwalk on the beat, the floss and the Charleston (besides the hip-hop)
+
+2026-10-02 version 2.1.9-web.281:
+- new: the Ace dances to the music player — play a track and leave the screen alone for 10 seconds on the home screen or in the lobby: he comes and dances on the beat until you touch anything. Four dances follow the tempo (slow sway, hip-hop, disco, techno) and change with the song; on iPhone with the default player (no in-app volume) he dances a generic groove. Can be switched off in Advanced options → Assistance
+
+2026-10-02 version 2.1.9-web.280:
+- improvement: the info panel tabs (history and odds) now carry the official client’s names in its 28 other languages — in the app, the help, Ace’s Help and the public pages
+
+2026-10-02 version 2.1.9-web.279:
+- improvement: English — the info panel tabs are named like the official client: History and Odds (were Log and Odds, with « Chances » in the help, an option and the public pages)
+
+2026-10-02 version 2.1.9-web.278:
+- bugfix: Korean rules page — typo in « big blind » (빅 블라인드)
+
+2026-10-02 version 2.1.9-web.277:
+- improvement: the FAQ, rules, how-to-play, glossary and hand-rankings pages in 82 languages now say what the English pages say: three new FAQ answers (Ranking games and seasons, watching a game, Ace’s Help), the Ranking-game rules, the « Bet » action, the minimum raise, heads-up blinds, the order of showing cards at showdown, guest play, the « Local / training » mode, installing the app and settings that follow your account
+
+2026-10-02 version 2.1.9-web.276:
+- bugfix: Ace’s Help — « Close » in his menu with the tips off now sends him away (he stayed, and the funny scenes stopped)
+- bugfix: Ace’s Help « ? » — the mode ends when another bubble takes its place (taps were still caught); it now explains the clickable rows and cards drawn by the app instead of running them; « My prefs » and « Save my prefs » on the create page get their own explanation
+- bugfix: Ace’s Help — the first-launch offer no longer stays over the table; « Just one more! » no longer covers what you are reading; his menu no longer vanishes when you switch apps
+- bugfix: Ace’s Help — after rotating the phone he comes back into view; his bubble is never cut at the screen edge; a tap at the very end of a funny scene no longer shows two Aces
+- improvement: Ace’s Help — keyboard: the focus stays in his bubble from page to page, Escape closes it from the Ace too; screen readers announce that a tap opens his menu
+
+2026-10-02 version 2.1.9-web.275:
+- improvement: the header menus keep only « Ace’s Help » (the separate « Help » entry and its option are gone); it opens the Ace’s menu at any time, even with his tips off: More help (the whole help, with a search), « What’s this? », and « Turn on tips »
+
+2026-10-01 version 2.1.9-web.274:
+- bugfix: Ace’s Help — the Ace could show up twice (two Aces at the bottom right) when a tip and a tap came while he was still loading
+- new: Ace’s Help — « Install the app » in his menu: the steps for your device (iPhone/iPad, Android, computer), « Install now » when the browser offers it; the help section « Install as an app » gives the steps for every platform
+
+2026-10-01 version 2.1.9-web.273:
+- new: help — a section on the BBC (Best Brainies Cup): the four steps and tickets, the daily times (Berlin time), registering and cancelling (20 minutes before), the requirements, the season points and score, restarts and results; Ace’s Help « ? » opens it from « Register for the BBC », the BBC preset and the BBC ranking tab
+
+2026-10-01 version 2.1.9-web.272:
+- improvement: Ace’s Help « ? » — a real answer everywhere: menus, language list, accessibility, About, privacy, the login fields, the game list, the players, the theme panel, the avatar creator, the sound settings, the seat menu at the table, the end of the game, statistics…; for anything else he names the element and points to the help that talks about it
+
+2026-10-01 version 2.1.9-web.271:
+- improvement: Ace’s Help — tapping the Ace now opens his menu (More help, « What’s this? », this screen’s tip, turn off, show all tips again) instead of repeating the same tip; a tip you put off with « Later » still comes back with a tap
+- improvement: Ace’s Help — his welcome and his menu explain « What’s this? » and the yellow « ? » on his bubbles; the help section on Ace’s Help lists his menu
+
+2026-10-01 version 2.1.9-web.270:
+- improvement: the help now lives in Ace’s Help — the Help entry of the menus opens « More help » in the Ace’s bubble on every screen, at the table and in the spectator view too; the separate help window is gone (same texts, same search, in 83 languages)
+
+2026-09-30 version 2.1.9-web.269:
+- new: Ace’s Help at the table — the Help entry and the « ? » mode work there too, even during a hand: the action buttons, your bet, the auto modes, the seats, the board, the pot, the chat, the reactions, the info panel…; the Ace still never speaks there by himself
+- improvement: when your turn comes, the Ace folds his bubble and the « ? » mode ends — a tap on an action button always plays
+- improvement: the Ace’s bubble finds a better spot (left, middle or right under the header) and never covers him
+
+2026-09-30 version 2.1.9-web.268:
+- improvement: Ace’s Help « ? » mode — over 100 elements explained: Advanced options (each option says its own name), ranking, forum, avatar studio, private messages, logs, a player’s card, music, every field of the creation page, the players list and the rest of the lobby and login screen
+- new: Ace’s Help « ? » mode — « More about it » opens the matching help section in the Ace’s bubble
+
+2026-09-30 version 2.1.9-web.267:
+- new: Ace’s Help — « More help »: the whole help, read by the Ace in his bubble: the topics of the screen you are on, every chapter, a search, and each section page by page
+- improvement: the Help entry of the menus now brings the Ace with the help, even if his tips are off (he leaves when you close it); the classic help window is still one tap away, and still opens at the table
+
+2026-09-30 version 2.1.9-web.266:
+- new: Ace’s Help — « Well done! »: back in the lobby after a game won, points in a Ranking game or a trophy unlocked in training, the Ace celebrates with confetti (once, when no tip is on screen)
+- improvement: Ace’s Help — for a new table or a private message, the Ace only takes a couple of steps out of his spot
+
+2026-09-30 version 2.1.9-web.265:
+- improvement: the Ace’s funny scenes are part of Ace’s Help — no more « Animated mascot » option; they play on the login screen and in the lobby after 30 s without touching anything (then every 2 min at most), except with reduced effects
+- improvement: with Ace’s Help on, the Ace leaves his spot for his scene and comes back to it (on foot, through a door or in a puff), never while a tip waits; tap the screen and he walks back
+- improvement: the Ace has the same size everywhere, docked or playing a scene
+
+2026-09-30 version 2.1.9-web.264:
+- new: Ace’s Help, « ? » mode — tap « ? » in his bubble or menu, then tap anything on the screen: the Ace says what it does instead of doing it; tap it again to use it, « Done » or Escape to leave
+
+2026-09-30 version 2.1.9-web.263:
+- new: Ace’s Help, game creation — the four game types, who can create a Ranking table (any player with an account), cup presets are for practice only
+- new: Ace’s Help, windows — a short explanation the first time you open the ranking, the forum events, help, advanced options, theme, music player, avatar, players list, a player’s card and the logs
+
+2026-09-30 version 2.1.9-web.262:
+- new: Ace’s Help, login screen — he explains the three ways to play, account versus guest (what guests cannot do, the free account), then the nickname and the avatar (Gallery, Create — even from a photo — and Import)
+- new: Ace’s Help, waiting room of a normal or training table — who starts the game, filling up with computer players, inviting friends
+- improvement: Ace’s Help — his bubble moves to the top of the screen when it would hide what it talks about
+
+2026-09-30 version 2.1.9-web.261:
+- new: server admins — Ace’s Help statistics (anonymous, no identifier): how many players accept the help, which tips are read or put off, and the Ranking funnel (table shown → joined → game started)
+- improvement: privacy page — the Ace’s Help counters are listed
+
+2026-09-30 version 2.1.9-web.260:
+- new: Ace’s Help — the Ace can guide you through the app as you go: offered once at first launch, then on or off with the button on the login screen, in the menus next to Help, or in Advanced options → Assistance
+- new: Ace’s Help, pokerth.net lobby — he points at the ranked table closest to starting and offers to join it, or to create one when none is open (players with an account; guests are shown how to get a free account)
+- new: Ace’s Help, ranked waiting room — while the table fills up he explains the ranking (points, Score, seasons, why 5/5 is everyone’s favourite), wishes you good luck, and back in the lobby tells you your place and points
+- improvement: help — new « Ace’s Help » section
+
+2026-09-30 version 2.1.9-web.257:
+- bugfix: lobby — the player search box no longer fills itself with a saved login name (e.g. "admin") emptying the players list, and it now has a ✕ to clear it
+
+2026-09-30 version 2.1.9-web.256:
+- improvement: help — Ranking games: any player with a pokerth.net account can create one (guests can neither join nor create them), 10 players, no password, starts when full, and the “5/5” format explained
+- improvement: help — cups: official games are created by the cup admins, players register on the cup’s site or in its forum thread, the Monthly Cup can also be joined on monthlycup.pokerth.net
+
+2026-09-29 version 2.1.9-web.255:
+- bugfix: lobby — the server time panel (tap the clock at the bottom right) opens in front of the chat and the open windows instead of behind them
+
+2026-09-29 version 2.1.9-web.254:
+- improvement: rankings, player cards, forum news, live figures and events answer faster and ask the community sites far less often (shared copies, no retry storm when a site is down)
+- new: server admins can turn the Events tab off or set how often the community sites are read
+
+2026-09-29 version 2.1.9-web.253:
+- improvement: forum news, Events tab — opens at once: the events are loaded in the background like the posts, and the server always answers from its last copy while it refreshes the community sites
+
+2026-09-29 version 2.1.9-web.252:
+- bugfix: on phones, the header menus (login, lobby, waiting room, game) open in front of an open window (ranking, forum, options, help…) instead of behind it
+
+2026-09-29 version 2.1.9-web.251:
+- improvement: reporting an avatar or a game name is reserved for players logged in with a pokerth.net account, as in the desktop clients — guests no longer see the 🚩 report buttons (the server refuses guest reports)
+
+2026-09-28 version 2.1.9-web.250:
+- improvement: help — the forum news section describes the Events tab as it is now: only the ↗ icon opens a site, tap an event to select it (the button at the bottom follows it), the WEC daily game, the registered players
+
+2026-09-28 version 2.1.9-web.249:
+- improvement: forum news, Events tab — BBC games show their sign-ups in full words, as in the desktop client: « (3 players registered) »
+
+2026-09-28 version 2.1.9-web.248:
+- bugfix: ranking tables — the waiting line under the buttons no longer says the admin will start the game: it now says the game starts automatically as soon as the table is full
+
+2026-09-28 version 2.1.9-web.247:
+- improvement: forum news, Events tab — the rows no longer open the sites: only the ↗ icon does (upcoming games and latest results)
+- improvement: forum news, Events tab — tap an upcoming event to select it: the button at the bottom follows it (Register for the BBC, Register for the Monthly Cup; greyed out for the WEC daily game, which needs no registration)
+
+2026-09-28 version 2.1.9-web.246:
+- new: pokerth.net, ranking and Cup tables — the game info panel shows how many players are still missing (e.g. 3/10): a ranking game only starts, and counts, with a full table of 10
+
+2026-09-28 version 2.1.9-web.245:
+- improvement: forum news — the translate button of a post turns yellow while the translation is shown, like the active tabs
+
+2026-09-28 version 2.1.9-web.244:
+- improvement: forum news — a translated post keeps its images, colours and lists: each text is translated in place
+- improvement: forum news, Events tab — only one BBC game unfolds at a time: opening another one folds the previous list of registered players
+
+2026-09-28 version 2.1.9-web.243:
+- improvement: forum news — reading a post keeps the Events / Posts tabs on top, and the post opens inside the « Posts » frame (back arrow in its header)
+
+2026-09-28 version 2.1.9-web.242:
+- improvement: forum news — the server time sits in its own frame, like « Upcoming », and the Posts tab list gets the same frame as the Events tab
+- improvement: forum news, Events tab — the Ranking section is gone (the rankings have their own window)
+
+2026-09-28 version 2.1.9-web.241:
+- new: forum news, Events tab — tap a BBC game that has sign-ups to see who is registered, as in the desktop client (BBC admins in gold); the ↗ icon and the new “Register for the BBC” button open the BBC site
+
+2026-09-28 version 2.1.9-web.240:
+- new: forum news, Events tab — the WEC daily game is in the calendar: every evening at 22:00 server time (shown in your own time), no registration needed
+
+2026-09-28 version 2.1.9-web.239:
+- improvement: forum news, Events tab — the STEP badges are smaller: same size as the BBC badge, and they grow and shrink with the window like it
+
+2026-09-28 version 2.1.9-web.238:
+- improvement: forum news, Events tab — BBC games keep their BBC badge; the coloured STEP badge now sits next to it, as large as the text
+
+2026-09-28 version 2.1.9-web.237:
+- improvement: forum news, Events tab — upcoming games are grouped by evening (Today, Tomorrow, then the date), as in the desktop client: large time, step badge and sign-ups (dimmed at 0, green when the table is full); the 01:00 game stays with the evening before
+
+2026-09-28 version 2.1.9-web.236:
+- improvement: forum news, Events tab — each BBC game now shows its step on a coloured badge, as in the desktop client: STEP 1 yellow, STEP 2 green, STEP 3 orange, STEP 4 red (special games in blue)
+
+2026-09-28 version 2.1.9-web.235:
+- bugfix: music player — the ▸/▾ button now really folds and unfolds the track list (it is folded when the player opens; the Playlist and Radios tabs unfold it)
+
+2026-09-28 version 2.1.9-web.234:
+- bugfix: music player — the playlist now really scrolls to the track being played (it stayed at the top)
+
+2026-09-28 version 2.1.9-web.233:
+- improvement: music player — the playlist follows the track being played: it scrolls to it and highlights it; scroll freely, it comes back to the current track after a few seconds without touching the list
+
+2026-09-28 version 2.1.9-web.232:
+- new: animated mascot — he reacts in the lobby: a new table appears (he points at the list), a private message arrives (he waves an envelope), you climb the LAN ranking (confetti)
+- new: animated mascot — his friends drop by: a western duel with the King of hearts, and the Joker who plays a trick on him
+- new: animated mascot — seasonal hats: Santa hat in December, a pumpkin for Halloween, a beanie in winter, sunglasses in summer
+
+2026-09-28 version 2.1.9-web.231:
+- new: animated mascot — eight new scenes with props: the dealer (riffles, fans the deck… and sends it flying), the chip tower (it sways and falls on him), the lonely felt (he waits for players: « Anyone? »), the rain cloud that follows him (his umbrella only sends it next door), the selfie (« Cheese! » and the flash dazzles him), soap bubbles (a big one carries him away), the guitar (until a string snaps) and the dance (twist, disco… and the splits)
+
+2026-09-28 version 2.1.9-web.230:
+- new: animated mascot — six new gags: a banana peel (he slips, backflips and lands flat), the bluff (he hides his cards, goes all-in… reveals 7-2 and runs away), sitting on the edge of a window whistling, hanging under a window until a hand slips, knocking on your screen from the inside (face squashed on the glass), and trying to push the edge of the screen
+
+2026-09-28 version 2.1.9-web.229:
+- improvement: animated mascot — a bit smaller again; no more spade in the middle of his face
+- improvement: animated mascot — on large screens he now plays on open windows (ranking, forum, private messages…): he says hello over their top, climbs them and falls off them. On a phone he climbs the home card by its front
+- new: animated mascot — two new acts: the cowboy (he draws, aims… BANG! a flag pops out) and skipping rope (faster and faster, until he trips)
+- new: animated mascot — new faces (heart eyes, anger, tears, big grin) and the suits in his corners change with his mood
+
+2026-09-28 version 2.1.9-web.228:
+- new: animated mascot — a hidden test panel (add ?mascot=panel to the address) to play any of his appearances right away: entry, act, exit, hat and tool, slow motion or fast forward, loop
+
+2026-09-28 version 2.1.9-web.227:
+- bugfix: action bar in very low landscape windows (under 380 px high) — scaled down so it no longer runs off the bottom of the screen
+- bugfix: action bar in the phone layout on a computer — the mode list no longer sticks out of the bar's frame
+
+2026-09-28 version 2.1.9-web.226:
+- improvement: action bar on a computer — a small window (portrait up to 740 px wide, landscape up to 500 px high) switches back to the phone layout, handy to check the mobile look from a computer
+
+2026-09-28 version 2.1.9-web.225:
+- improvement: action bar on a computer — one layout at every window size, scaled down as a whole (text included) in small windows so it keeps the same proportion with the table; it no longer jumps between formats while resizing
+
+2026-09-28 version 2.1.9-web.224:
+- bugfix: action bar — in low windows (500 px high or less) on a computer it no longer slides half off the screen to the left
+
+2026-09-28 version 2.1.9-web.223:
+- improvement: action bar on desktop — same height as the official client (115 px instead of 130) and floating 8 px above the bottom edge; the table gains the difference
+- bugfix: action bar — the buttons were 2 px taller in windows 600–900 px wide
+- bugfix: community cards no longer touch the side player boxes in narrow windows
+
+2026-09-28 version 2.1.9-web.222:
+- bugfix: action bar — on large screens it is again as wide as the community cards (it was stuck at its minimum width since the previous version)
+
+2026-09-28 version 2.1.9-web.221:
+- bugfix: community cards — their size no longer jumps or shrinks when the window gets wider, and is no longer oversized on large screens: it now follows the official client
+- bugfix: community cards and pot no longer slide under a player box at 4–5 players on some window sizes
+
+2026-09-28 version 2.1.9-web.220:
+- improvement: spectator view — the seats around the bottom player are now spaced like the ones around the top player, so the table looks symmetric (they were spread wider at the bottom)
+
+2026-09-28 version 2.1.9-web.219:
+- bugfix: theme window — the Table / Cards / Card back / Seats tab bar now stays flush with the top while scrolling (a strip of the list showed through above it)
+
+2026-09-28 version 2.1.9-web.218:
+- improvement: animated mascot — the Ace is a little smaller
+- new: animated mascot — he now also says hello from behind the top of a window, then ducks back down or climbs over and jumps down; two new acts: a nap (big yawn, zZz, wakes with a start) and juggling with three poker chips
+
+2026-09-27 version 2.1.9-web.217:
+- new: animated mascot (off by default, Advanced options › Appearance) — the Ace, a playing card with arms and legs, shows up now and then on the home screen and in the lobby when you leave them alone: through a door, in a puff of smoke or from the edge of the screen, then a moonwalk, a climb and a fall, a magic trick, the King, the Knight or a string of faces. Any tap or key sends him away; never at a table
+
+2026-09-27 version 2.1.9-web.216:
+- bugfix: live spectator tool — the online player count no longer grows after a timeout and reconnect in the same window (players from the previous session were still counted)
+- new: live spectator tool — a search field on the Players tab to find a player in the list
+
+2026-09-27 version 2.1.9-web.215:
+- new: toon portraits — ten fun starter characters: the Fish, the Maniac, the Surfer, Granny, Grandpa, the Tycoon, the Clown, the Tourist, the Ninja, the King (30 in all)
+- new: toon portraits — a clown nose, a balaclava (wraps the whole head, eyes only), a hawaiian shirt and a clown suit for both silhouettes, a white rhinestone jumpsuit (59 outfits)
+
+2026-09-27 version 2.1.9-web.214:
+- bugfix: toon portraits — the witch hat's crown now wraps the skull: the top of the head no longer shows on both sides of the cone above the band
+- bugfix: toon portraits — the fedora, the panama, the stetson and the ace fedora start a touch wider at the base: no sliver of skull beside the crown on the square face (checked on every hat × every face shape)
+
+2026-09-27 version 2.1.9-web.213:
+- bugfix: toon portraits — the witch hat no longer lets tufts of hair show above the ends of its brim
+- improvement: avatar « Create » tab — the starter characters fill the width of the window, centred, with bigger portraits
+
+2026-09-27 version 2.1.9-web.212:
+- bugfix: toon portraits — the witch hat was a small perched cone; it is now a proper wide-brimmed witch hat, as wide as the head, with a tall cone and a tip flopped to the side
+- bugfix: avatar picker — opened from the lobby or the login screen, the window now sits at the top of the screen and uses the visible height (it sat too low and its bottom slid under the phone's toolbar)
+- bugfix: avatar picker — on the « Create » tab, the rows scrolled past no longer show through a strip above the pinned preview
+
+2026-09-27 version 2.1.9-web.211:
+- new: toon portraits — ten more starter characters: the Detective, the Magician, the Vampire, the Witch, the Chef, the Sailor, the Pop Star, the Rapper, the Boxer, the Streamer (20 in all)
+- new: toon portraits — headphones, a headset mic, a witch hat, a chef's toque and a sailor cap (21 hats); a trench coat, a cape, a breton top and a chef's jacket for both silhouettes, a sequin dress, a tracksuit with a gold chain and a boxing robe (54 outfits); a pipe; a wart
+
+2026-09-27 version 2.1.9-web.210:
+- new: toon portraits — the « Create » tab opens on a « Characters » step: ten starter characters (the Godfather, the Cowboy, the Diva, the Shark, the Dealer, the Pirate, the Rocker, the Geek, the Queen, the Pro) — tap one to load it, then customise anything
+- new: toon portraits — three more expressions: proud, bored, playful
+- improvement: toon portraits — options and characters can now be marked « to unlock »: they show greyed out with a lock until earned (nothing is locked yet — the ground for future rewards)
+
+2026-09-27 version 2.1.9-web.209:
+- new: toon portraits — an « Expression » row in the Face step sets the eyebrows, eyes and mouth in one tap: neutral, joy, anger, sadness, surprise, bluff, tilt, sleep, fear, love, win, KO — with their little extras (anger vein, tear, sweat drop, zzz, hearts, stars, dizzy stars); heart, star, crossed and shut eyes, sad / worried / raised brows and a wavy mouth come with it
+- improvement: toon portraits — every option now has a permanent name inside the saved portrait, so options can be added, removed or reordered in the future without ever changing a saved face (portraits saved by older builds are converted on opening); the portrait engine was rebuilt around a catalogue of parts (same drawings, checked pixel for pixel)
+- bugfix: the « From a photo » panel and its analysis are precached for offline use like the rest of the Create tab
+
+2026-09-27 version 2.1.9-web.208:
+- bugfix: toon portraits — hats are sized on the width of the skull again (a face with narrow temples and wide cheekbones wore a bowler too small for its head since web.203), and the fedora, bowler, panama, stetson and top hat have crowns as wide as the head instead of a narrow one perched on top; the crown sits on the head instead of floating above it
+
+2026-09-27 version 2.1.9-web.207:
+- improvement: toon portraits — seven skin tones sorted light to dark instead of ten (the very light double and the two darkest are gone: scars, bruises and tattoos vanished on them); saved portraits keep the nearest tone
+- improvement: « From a photo » — the eyebrows are read (a frown, one raised brow, thick brows, thin arched brows), a beard that goes on below the chin becomes the long beard, and a green or deep red backdrop becomes the matching felt
+
+2026-09-27 version 2.1.9-web.206:
+- new: toon portraits — four poker backdrops: green felt with a chip stack, burgundy felt with gold suits, card back, casino neon (15 backdrops)
+- new: toon portraits — a « Badge » row in the Extras step: a poker token pinned in the corner of the frame — dealer button, red chip, pair of aces, dice, chip stack
+- new: toon portraits — three eyes (scarred shut eye, bloodshot, side glance), a toothpick and a gold-tooth grin, skull studs and an eyebrow ring (the two piercings are available to men too)
+
+2026-09-27 version 2.1.9-web.205:
+- new: toon portraits — ten poker / tough-guy outfits, one per silhouette: dealer vest with bow tie and sleeve garters, « Royal Flush » tee with five cards on the chest, shirt scattered with the four suits, pinstripe suit (red tie or pocket square), biker leather vest with a spade patch (43 outfits, 22 / 21; the tees, suits and vests take the outfit colour)
+- new: toon portraits — six hats: hood up (the hair shows in its opening, the hood lies on the shoulders), black stetson, top hat (men), black cap with a spade, fedora with an ace of spades in the band, crown for the king of the table (16 hats)
+
+2026-09-27 version 2.1.9-web.204:
+- new: toon portraits — an « Eyebrows » row in the Face step: neutral, angry V, one raised, low and thick, thin and arched (the last one for the feminine silhouette); the eyebrows keep the hair colour
+- new: toon portraits — a pirate eye patch, a monocle on a chain (men) and mirrored aviators in the Glasses row; a sneer with a canine showing and gritted teeth in the Mouth row; a scar across the bridge of the nose, a black eye and a tribal tattoo on the temple in the Skin marks row
+- improvement: the eye colour row is hidden behind mirrored aviators, like behind sunglasses
+
+2026-09-27 version 2.1.9-web.203:
+- improvement: toon portraits — every face shape now carries its own landmarks (temples, ears, cheeks, jaw, chin) and the hair, hats, beards and ears are fitted from them: the hair follows the head width at every height (a narrow crown over wide cheekbones, a wide crown over a narrow jaw), a beard starts right under the ear and keeps the same thickness on the cheek whatever the face, overhangs the chin instead of sticking out beside the cheeks, the goatee hangs from the chin and the balding ring stops at the ear lobe
+
+2026-09-27 version 2.1.9-web.202:
+- improvement: toon portraits — the men's curly hair is made of curls of uneven size (no more rows of identical pearls); the bed-head strands are attached to the head; the long beard grows out of the jaw beard and tapers to a rounded point on the chest; the women's curly ponytail falls beside the head instead of through it; the braided low bun keeps its braid readable on black hair; the long locs are drawn like the dreadlocks (twists from the crown, locks of uneven length)
+
+2026-09-27 version 2.1.9-web.201:
+- new: « bed head » hairstyle, one per silhouette in the « Create » tab — tufts every which way for men, a tousled mid-length with flyaway strands for women (52 hairstyles, 24 / 28)
+- improvement: beards start at ear-lobe level instead of framing the face up to the eyes (short, full and long beards, stubble); the men's long curly hair is a wavy mass with curls at the ends instead of sausage curls down the sides
+
+2026-09-27 version 2.1.9-web.200:
+- bugfix: « From a photo » — grey or short stubble is recognised again (the chin is judged on its dark colourless grain, not only on being darker than the cheeks), and a beard must start right under the lip (a shaded neck or a collar under a chin framed a little high is not one)
+- improvement: « From a photo » — the skin of THIS photo is learnt from the middle of the oval (a flushed face, a colour cast or a very dark skin no longer fall out of the fixed rule); a pale wall can no longer become a cap or white hair; a mid-grey wall above a head framed low no longer becomes grey hair; with an imported photo the backdrop is read inside the photo, not in the blank margin around it
+
+2026-09-27 version 2.1.9-web.199:
+- bugfix: « From a photo » — a man in a dark top came out with long straight hair (the dark garment under the chin passed for hair over the shoulders since web.192); a man's hair is long only when it also covers the sides of the face at ear level
+
+2026-09-27 version 2.1.9-web.198:
+- improvement: portraits of the « Create » tab — the dreadlocks are redrawn (twists radiating from the crown, eight locks of uneven length with their knotted texture) and the long beard is a rounded, combed mass under the chin instead of a flat triangle
+
+2026-09-27 version 2.1.9-web.197:
+- new: two more face shapes per silhouette in the « Create » tab — men: a long rectangular face and a rugged one (wide cheekbones, angular chin); women: a long slim face and a soft diamond (high cheekbones, small chin). Five shapes each, hair, beards, hats and ears fitted to all of them
+- improvement: « From a photo » — a face clearly narrower than the template oval now picks the long shape
+
+2026-09-27 version 2.1.9-web.196:
+- improvement: portraits of the « Create » tab — the men's tank top read as a strapless top on the cropped torso; it becomes a bomber jacket (ribbed collar, zipper, white tee underneath), in the eight outfit colours
+
+2026-09-27 version 2.1.9-web.195:
+- bugfix: portraits of the « Create » tab — hair, hats, beards and ears now follow the width of each face shape: no more hair floating off a round man's temples or ears sticking out beside a narrow oval; beards reach the sideburns on every jaw; the balding crown is a ring of hair hugging the head instead of two blocks beside it; long masculine hair tapers and rounds off at the ends
+
+2026-09-27 version 2.1.9-web.194:
+- improvement: portraits of the « Create » tab — the three face shapes now differ by silhouette: men get a firmer, wider jaw (oval, round, square), women a softer tapered chin (oval, round, and a heart shape with a pointed chin in place of the square). Beards, hair and the shape vignettes follow the new outlines; saved portraits keep their choice
+
+2026-09-27 version 2.1.9-web.193:
+- improvement: portraits of the « Create » tab — men looked too feminine at times: earrings, the pout, the small « o » mouth and the beauty mark are now women's options only, the blush is barely visible on men, and three of the new men's hairstyles are redrawn (a tighter curly mop, a pompadour swept back, a squared flat top). Men get a cigar in the corner of the mouth and a cheek scar instead
+- improvement: « From a photo » — a pout is never guessed on a man
+
+2026-09-27 version 2.1.9-web.192:
+- new: 11 more hairstyles in the « Create » tab — men: short voluminous curls, side part with a wavy quiff, fade, man bun, long straight hair with a middle part; women: curly ponytail, wavy lob, long curls with a fringe, low braided bun, short natural afro, half-up. 50 hairstyles in all (23 / 27)
+- improvement: « From a photo » — a man's hair over the shoulders now picks the long straight style
+
+2026-09-27 version 2.1.9-web.191:
+- improvement: « From a photo » (beta) — the face shape now comes from the face's width against the template (you fitted its height): wider than the oval → round, a wide jaw → square, otherwise oval; a clearly short nose picks the small upturned one, a clearly long one the straight one (the nose is otherwise left as it was); teeth are judged against the lit skin of the same photo, so a smile with teeth in a dim photo or a wide grin with thin lips now gives the grin instead of a neutral mouth
+
+2026-09-27 version 2.1.9-web.190:
+- improvement: « From a photo » (beta) — long hair lying over the shoulders is read as hair (it used to become a dark turtleneck and a short cut); a shaded wall the colour of the hair no longer hides the hair beside the face; a beard is only claimed for a dark, hair-coloured mass — a shaded neck or a collar a little below the oval is not one any more; grey is only guessed for truly colourless hair; the analysis runs on the full frame instead of a small copy of it
+- improvement: the « Take the photo » button is big and full width
+
+2026-09-27 version 2.1.9-web.189:
+- improvement: « From a photo » (beta) — hair is read from the framed photo itself: the band above the hairline you aligned gives the colour, the sides and shoulders the length, and a fringe over the forehead picks a fringed style. Light hair (blonde, light brown) is no longer mistaken for skin, dark hair against a dark backdrop is no longer read as a bald crown, and a photo that stops above the hairline keeps the default hair instead of guessing
+- new: 4 more hair colours in the « Create » tab — light brown, light red, blue, pink (brows and beards stay natural on the last two); « From a photo » matches them too (a dark blonde now lands on light brown instead of brown)
+
+2026-09-27 version 2.1.9-web.188:
+- improvement: « From a photo » (beta) — the silhouette is now a first, full-size step: two big cards (Man / Woman, with a sample portrait) before the camera opens; a small button above the viewfinder reopens the choice
+- bugfix: « From a photo » — a photo framed in the template is read from the template again (the previous build searched the face on its own and lost skin tone, hair and beard on a normal selfie); the beard is now judged against the cheeks of the same photo, so lighting no longer hides it; the eye line of the template moves up to where eyes really sit
+- improvement: the ♂ / ♀ chips of the « Create » tab use drawn icons, centred in their box, instead of text symbols that sat off-centre
+
+2026-09-27 version 2.1.9-web.187:
+- new: portraits of the « Create » tab — 16 more outfits (men: tee, polo, plaid shirt, crew-neck sweater, denim jacket, tank top, football jersey, zip hoodie; women: floral blouse, strap dress, bow blouse, tailored blazer, cardigan, sweatshirt, swimsuit, scoop tee) and 13 more hairstyles (men: side part, mid-length, ponytail, buzz cut, long curly, curtain fringe; women: short bob, crown braid, straight fringe, very long straight, cropped, messy high bun, long locs)
+- new: an « Outfit colour » choice (8 colours, or « Auto » to keep the garment as drawn) for the plain garments — tees, sweaters, hoodies, turtleneck, blouses, dresses, cardigan…
+- improvement: « From a photo » (beta) picks the outfit colour from your clothes and uses the new hairstyles (mid-length, cropped)
+
+2026-09-27 version 2.1.9-web.186:
+- improvement: « From a photo » (beta) — the silhouette (♂ / ♀) is chosen in the framing panel, before the photo; the photo never decides it any more
+
+2026-09-27 version 2.1.9-web.185:
+- new: « From a photo » (beta) also picks the silhouette when the photo shows a clear cue — a beard or moustache, lipstick, or long hair; otherwise your choice stands. One tap switches it back
+
+2026-09-27 version 2.1.9-web.184:
+- new: « From a photo » (beta) now opens a framing panel — the front camera live, mirrored, with a face template (oval, eye line, shoulders) to line up with, or a photo from your gallery you drag and zoom into the template; the portrait is then read from the framed square, which makes the guess far more reliable. Without a camera (or if you refuse it), the panel switches to the photo mode. Nothing is recorded or sent
+- improvement: « From a photo » — a bald head is recognised in the framed photo, sunglasses are no longer guessed from shadowed eyes, a wide smile with teeth is read as a grin
+
+2026-09-27 version 2.1.9-web.183:
+- bugfix: « From a photo » (beta) — a bearded face is no longer cut at the forehead (eyes were then missed and the beard lost); a beard next to a dark T-shirt is no longer mistaken for the collar; eye bags and shadows no longer pass for glasses
+
+2026-09-27 version 2.1.9-web.182:
+- improvement: « From a photo » (beta) — better eye detection (eyebrows and eye corners are no longer mistaken for pupils), fairer skin tones (measured on the lit part of the face, not on the shadows or the stubble), hair colour taken from the hair rather than the hairline shadow, glasses only when a frame runs under both eyes, a jaw beard no longer squares the face, and the outfit follows the clothes seen under the chin (dark → hoodie / turtleneck, light → open shirt / sweater)
+
+2026-09-27 version 2.1.9-web.181:
+- new: « From a photo » (beta) in the « Create » avatar tab — pick a photo and the portrait is pre-filled from it: face shape, skin tone, hair colour and length, eyes, eye colour, glasses, mouth, beard and background; everything is analysed on your device, the photo is never uploaded nor kept. Works best with a well-lit photo, facing the camera, on a plain background — then adjust to taste
+
+2026-09-27 version 2.1.9-web.180:
+- improvement: portraits of the « Create » tab — mouths, eyes and noses are redrawn in a bolder cartoon style: filled mouths with a lower lip, outlined eyes with a thick upper lid, solid little noses, thicker eyebrows
+- new: two more mouths — a frown and a tongue out
+
+2026-09-27 version 2.1.9-web.179:
+- improvement: portraits of the « Create » tab — every hairstyle and every outfit now belongs to one silhouette only (12 hairstyles and 9 outfits for men, 14 hairstyles and 8 outfits for women), so the choices and the « Random » button stay coherent; the burgundy suit became a collared sweater, and the turtleneck and the blazer with scarf moved to the feminine side
+- bugfix: pigtails now hang behind the head next to the cheeks instead of floating beside it, and the side braid comes out from behind the ear
+- bugfix: a few hairstyles sat too high or too low — the bun and the afro no longer touch the frame, and the fringes of the pixie cut, the side-swept bob, the surfer cut and the hollywood waves no longer cover the eyebrows
+- improvement: short hairstyles show only a thin band under a hat; the bowler and the flat cap are for men, cat-eye glasses, pearls and gold hoops for women
+
+2026-09-27 version 2.1.9-web.178:
+- improvement: portraits of the « Create » tab — the balding crown now wraps round the head, the surfer cut and the low ponytail no longer look stuck on the face, and the side-swept bob no longer hides an eye
+- improvement: the long box braids are now offered with the feminine silhouette only, and the « Random » button draws the most striking styles (mohawk, bald, balding, dreadlocks, afro) less often
+
+2026-09-27 version 2.1.9-web.177:
+- bugfix: portraits of the « Create » tab — hair now hugs the round and square faces (no more gap at the temples), beards follow the shape of the jaw, the balding and mohawk sides stay on the head, and the stray shadow under the chin is gone
+- improvement: the « Random » button now only picks options that suit the chosen silhouette (no bald or mohawk woman, no tie on a woman, no cat-eye glasses or pearls on a man) and adds hats, glasses, earrings and skin marks less often
+
+2026-09-27 version 2.1.9-web.176:
+- improvement: new, friendlier look for the portraits of the « Create » avatar tab — big round head, large expressive eyes, soft colours and a pastel background, still framed in gold; your saved portrait re-opens in the new style
+- improvement: the shoulder accessories (chips, cards, glass) are gone with the new style
+
+2026-09-27 version 2.1.9-web.175:
+- bugfix: after an update, the loading screen now shows only once instead of twice
+
+2026-09-26 version 2.1.9-web.174:
+- improvement: the card suits of the login screen dance again after 30 seconds without touching anything
+
+2026-09-26 version 2.1.9-web.173:
+- new: a little fun on the login screen — the card suits dance when it appears, and a click on the PokerTH chip flips it like a coin
+
+2026-09-26 version 2.1.9-web.172:
+- improvement: the Forum news window now opens on the Events tab, placed first, and both tabs have an icon (calendar for Events, newspaper for Posts)
+- improvement: the Events tab shows the pokerth.net server time (Berlin), and your own time when it differs, like the lobby status bar
+
+2026-09-26 version 2.1.9-web.171:
+- bugfix: the link button of the game info panel now shares the same invite link as « Invite friends » — the old link sent your friend to the LAN login instead of pokerth.net
+- bugfix: an invite link opened while the app is already open now takes you to the table instead of doing nothing
+- bugfix: « shared table not found » now shows up even if you take time to log in, and a stale invite no longer drops you later at another table with the same name
+- improvement: an invite link to a table that has already started lets you watch it as a spectator; among tables with the same name, the one still waiting for players is chosen
+- improvement: the « Invite friends » window warns when the link cannot work for everyone (invite-only table, registered-players or ranking table, local server address)
+
+2026-09-26 version 2.1.9-web.170:
+- improvement: search engines now point Portuguese speakers whose country is unknown to the Brazilian Portuguese version, the one the app already shows them
+
+2026-09-26 version 2.1.9-web.169:
+- bugfix: the Latin American Spanish pages (home, rules, FAQ, poker hands, how to play, glossary) are now served in Spanish to search engines instead of English
+
+2026-09-25 version 2.1.9-web.168:
+- bugfix: the server time in the lobby status bar now shows Berlin time by default, the time pokerth.net community games are scheduled in, instead of the web host's own time
+
+2026-09-25 version 2.1.9-web.167:
+- improvement: the server time in the lobby status bar now looks like the desktop client - "Server time (Berlin): 14:05", shortened on small screens, a clock icon in portrait - and hides when community content is turned off
+
+2026-09-25 version 2.1.9-web.166:
+- bugfix: the English glossary page and the site summary for AI assistants now show the current number of interface languages (83) instead of 64
+
+2026-09-25 version 2.1.9-web.165:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Hong Kong Traditional Chinese too
+
+2026-09-25 version 2.1.9-web.164:
+- new: Traditional Chinese for Hong Kong (繁體中文（香港）) is now available in the language list, with Hong Kong vocabulary - browsers set to Hong Kong or Macau Chinese pick it automatically, bringing the client to 83 languages
+
+2026-09-25 version 2.1.9-web.163:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Mongolian too
+
+2026-09-25 version 2.1.9-web.162:
+- new: Mongolian (Монгол) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 82 languages
+
+2026-09-25 version 2.1.9-web.161:
+- bugfix: the Arabic FAQ page again shows the current number of interface languages
+
+2026-09-25 version 2.1.9-web.160:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Turkmen too
+
+2026-09-25 version 2.1.9-web.159:
+- new: Turkmen (Türkmençe) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 81 languages
+
+2026-09-25 version 2.1.9-web.158:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Tajik too
+
+2026-09-25 version 2.1.9-web.157:
+- new: Tajik (Тоҷикӣ) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 80 languages
+
+2026-09-25 version 2.1.9-web.156:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Kyrgyz too
+
+2026-09-25 version 2.1.9-web.155:
+- new: Kyrgyz (Кыргызча) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 79 languages
+
+2026-09-25 version 2.1.9-web.154:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Zulu too
+
+2026-09-25 version 2.1.9-web.153:
+- new: Zulu (isiZulu) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 78 languages
+
+2026-09-25 version 2.1.9-web.152:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Yoruba too
+
+2026-09-25 version 2.1.9-web.151:
+- new: Yoruba (Yorùbá) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 77 languages
+
+2026-09-25 version 2.1.9-web.150:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Hausa too
+
+2026-09-25 version 2.1.9-web.149:
+- new: Hausa is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 76 languages
+
+2026-09-25 version 2.1.9-web.148:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Esperanto too
+
+2026-09-25 version 2.1.9-web.147:
+- improvement: the language count on the rules, FAQ, how-to and glossary pages now reads 75
+
+2026-09-25 version 2.1.9-web.146:
+- new: Esperanto is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 75 languages
+
+2026-09-25 version 2.1.9-web.145:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Irish too
+
+2026-09-25 version 2.1.9-web.144:
+- new: Irish (Gaeilge) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 74 languages
+
+2026-09-25 version 2.1.9-web.143:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Welsh too
+
+2026-09-25 version 2.1.9-web.142:
+- new: Welsh (Cymraeg) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 73 languages
+
+2026-09-25 version 2.1.9-web.141:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Basque too
+
+2026-09-25 version 2.1.9-web.140:
+- new: Basque (Euskara) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 72 languages
+
+2026-09-24 version 2.1.9-web.139:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Nepali too
+
+2026-09-24 version 2.1.9-web.138:
+- new: Nepali (नेपाली) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 71 languages
+
+2026-09-24 version 2.1.9-web.137:
+- bugfix: Belarusian glossary page - three definitions still contained English words; they are now fully translated
+
+2026-09-24 version 2.1.9-web.136:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Belarusian too
+
+2026-09-24 version 2.1.9-web.135:
+- new: Belarusian (Беларуская) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 70 languages
+
+2026-09-24 version 2.1.9-web.134:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Armenian too
+
+2026-09-24 version 2.1.9-web.133:
+- new: Armenian (Հայերեն) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 69 languages
+
+2026-09-24 version 2.1.9-web.132:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Azerbaijani too
+
+2026-09-24 version 2.1.9-web.131:
+- new: Azerbaijani (Azərbaycanca) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 68 languages
+
+2026-09-24 version 2.1.9-web.130:
+- improvement: ranking — the "Champions of the day" podium now sits at the top of the PokerTH ranking (it left the forum news Events tab)
+
+2026-09-24 version 2.1.9-web.129:
+- improvement: forum news — "Champions of the day" is now shown as a small podium (1st in the middle, 2nd on the left, 3rd on the right)
+
+2026-09-24 version 2.1.9-web.128:
+- new: lobby — pokerth.net players now see the server time in the status bar at the bottom of the lobby; tap it to compare with your own time (BBC, WEC and Monthly Cup dates are given in server time). It can be hidden in the advanced options
+
+2026-09-22 version 2.1.9-web.127:
+- new: forum news — the Events tab now opens with the pokerth.net "Champions of the day" (gold, silver and bronze medals, linked to the official leaderboard)
+
+2026-09-22 version 2.1.9-web.126:
+- improvement: forum news — the Events tab now shows each category (upcoming, latest results, ranking) as its own card with an icon and a count, so they are easier to tell apart
+
+2026-09-22 version 2.1.9-web.125:
+- improvement: forum news — the "Posts" tab now shows the same red unread counter as the forum button
+
+2026-09-22 version 2.1.9-web.124:
+- bugfix: iPhone (installed app) — after reloading for a new version, a grey band could remain at the bottom of the screen until the phone was rotated; the app now keeps re-checking the screen height for 30 s after start and on the first taps
+
+2026-09-22 version 2.1.9-web.123:
+- new: admin page — a period selector (last 7 / 14 / 30 / 60 / 90 days) at the top of the Traffic tab now drives every chart and breakdown: daily visits, new devices, return rates, time of day, "Who visits" (system, browser, installed, language, trend arrows) and the most played tracks
+- improvement: admin page — "Who visits" system/browser/installed breakdowns are now also kept per day, so they can be sliced by period from this version on (running totals stay for earlier data)
+
+2026-09-22 version 2.1.9-web.122:
+- bugfix: admin page on phones — the language names in "Who visits" were squeezed out by the new trend column; each row now folds onto two lines
+- improvement: admin page — tapping a chart on a touch screen now keeps the reading open until you tap elsewhere (no need to hold your finger down)
+
+2026-09-22 version 2.1.9-web.121:
+- improvement: admin page — the language breakdown in "Who visits" now shows a trend arrow per language (share over the last 14 full days vs the 14 before, only when the change is statistically significant)
+
+2026-09-21 version 2.1.9-web.120:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Sinhala too
+
+2026-09-21 version 2.1.9-web.119:
+- new: Sinhala (සිංහල) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 67 languages
+
+2026-09-21 version 2.1.9-web.118:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Kazakh too
+
+2026-09-21 version 2.1.9-web.117:
+- new: Kazakh (Қазақша) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 66 languages
+
+2026-09-21 version 2.1.9-web.116:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Georgian too
+
+2026-09-21 version 2.1.9-web.115:
+- new: Georgian (ქართული) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 65 languages
+
+2026-09-21 version 2.1.9-web.114:
+- improvement: Forum news window, "Events" tab - "today", "tomorrow" and "yesterday" now come with the date ("tomorrow · 22 Sep")
+
+2026-09-21 version 2.1.9-web.113:
+- improvement: Forum news window, "Events" tab - BBC games now show their sign-ups the way the BBC calendar does ("4/10"): these are advance sign-ups on the site, not the number of players who will sit down
+
+2026-09-21 version 2.1.9-web.112:
+- new: Forum news window, "Events" tab - new "Ranking" section with the current BBC season leader and the WEC leader of the month (points, games played and the two runners-up); a tap opens the full ranking on the community site
+
+2026-09-21 version 2.1.9-web.111:
+- bugfix: iPhone / iPad - the music player stuttered with CarPlay, Bluetooth or a locked screen (one second of sound, a stop, and so on); music now plays through plain playback on these devices and keeps going in the car
+- new: iPhone / iPad - the volume is set with the device or car buttons by default; an "In-app volume" option in the player brings back the volume slider, the balance and the VU meter (it may stutter again in the car)
+
+2026-09-20 version 2.1.9-web.110:
+- new: Forum news window - new "Events" tab next to "Posts": the upcoming BBC step games and the next Monthly Cup with the number of players signed up, and the latest BBC, WEC and Monthly Cup winners; times are shown in your local time and a tap opens the community site
+- new: the "Events" tab follows the "Show community content (BBC / WEC)" option - switch it off and the window is the post list as before
+
+2026-09-20 version 2.1.9-web.108:
+- improvement: a dozen small labels that were still in English in most languages are now translated ("minutes" in the blind settings, "Stats", "Type" and starting chips in the lobby game details, button and marker style names), each with the terms its own language already uses elsewhere in the client
+
+2026-09-20 version 2.1.9-web.107:
+- improvement: training mode - bots no longer write text lines in the chat (they were repetitive and unrelated to the hand); their emoji reactions are unchanged
+
+2026-09-20 version 2.1.9-web.106:
+- bugfix: in the lobby the table counter ("3 table(s)") and the "Chat" heading stayed in English in every language - both are now translated
+
+2026-09-20 version 2.1.9-web.105:
+- bugfix: iPhone (installed app) - server announcements appeared under the status bar, where their close button could not be tapped; they now sit below it, never exceed the screen, and their close button is large enough for a finger
+- bugfix: the welcome / guest / account / LAN notice windows can no longer be taller than the visible screen - their button always stays in view
+- improvement: two announcements shown together no longer overlap, and they use the width of the screen instead of a narrow column
+
+2026-09-20 version 2.1.9-web.104:
+- improvement: phones in portrait - the table now uses the 14 px of felt that were left empty between your box and the action bar; boxes and cards are slightly larger, and the table no longer shifts after the bet keypad is closed
+
+2026-09-20 version 2.1.9-web.103:
+- bugfix: phones held in landscape - the bet keypad was cut off at the bottom of the screen (OK and Cancel unreachable); it now lies flat: amount with Cancel / OK, the digits on one line, the quick amounts below - and your own cards stay visible above it
+
+2026-09-20 version 2.1.9-web.102:
+- bugfix: iPhone - on the start screen the mode card was pushed up and the footer floated too high above the bottom edge; the card is centred again between the header and the footer
+
+2026-09-20 version 2.1.9-web.101:
+- improvement: while the connection is lost, the Fold / Check / Bet buttons are greyed out and cannot be tapped, instead of looking live; they come back the moment the connection does
+- bugfix: when the connection came back during your own turn, the "re-authenticating" notice stayed over the community cards for your whole thinking time; it now goes away after 10 seconds
+
+2026-09-20 version 2.1.9-web.100:
+- improvement: phones held in landscape - the pot and the community cards are now centred together between the top player and your own box, so the pot no longer touches the player above it
+- bugfix: when the connection could not be restored, you were sent back to the start screen without a word; a "Connection lost" window now explains what happened
+- bugfix: the reconnection counter read "1/3" on the first attempt and "2/6", "3/6"... afterwards; it now counts out of 6 from the start
+
+2026-09-20 version 2.1.9-web.99:
+- bugfix: on phones the "New version available" banner squeezed its text onto three lines next to the Update button; it now stays on one line
+
+2026-09-20 version 2.1.9-web.98:
+- bugfix: iPhone in landscape (Safari) - in Estonian, Khmer, Latvian and Macedonian the bet slider slid under the 1/3 button; the play-mode list now keeps a fixed width
+
+2026-09-20 version 2.1.9-web.97:
+- bugfix: small phones in portrait - "Raise $2,990" no longer runs out of its button: the amount is written on a second line under Call / Raise, as in the official client
+- bugfix: small phones - the "Create a table" title is no longer written across the header icons
+- bugfix: small phones - on the Internet login form the Discord / PokerTH / GitHub links are no longer hidden under the login card; they follow it and the screen scrolls if needed
+- bugfix: the "Password" label of the login form is now translated
+
+2026-09-20 version 2.1.9-web.96:
+- bugfix: iPhone in landscape (Safari) - the one-line bet controls introduced in web.94 fell back to two lines in Safari, so the table was still cramped; the line can no longer wrap
+- bugfix: mobile magnifier on slow devices - the small copy of the community cards could still land on your own cards; it now waits for the view to finish moving
+
+2026-09-20 version 2.1.9-web.95:
+- bugfix: the "Next hand…" message after a showdown was shown in French in every language - it is now translated
+- bugfix: in the winner window a loss now reads "-$20" instead of "$-20" (also in the end-of-game summary)
+- bugfix: phones held in landscape with a very short screen - the winner window no longer hides its Continue button below the screen; the whole window scrolls and Continue stays in view
+
+2026-09-20 version 2.1.9-web.94:
+- bugfix: phones held in landscape with a very short screen (iPhone) - the Fold / Check / Bet buttons are no longer cut off at the bottom
+- improvement: on those screens the bet amount, slider, quick bets, All-In and mode now share one line, giving the table about 40 px more height: no more overlapping player boxes at 9-10 players, the pot stays visible
+- bugfix: watching a table of 3 or 4 players on a phone in landscape - the player boxes no longer cover the community cards or the pot
+
+2026-09-20 version 2.1.9-web.93:
+- bugfix: on phones in portrait with 4 or 6 players, the dealer / small blind / big blind buttons no longer cover the neighbouring player's box or hide one another - they move below or beside their own box when there is no room
+
+2026-09-20 version 2.1.9-web.92:
+- bugfix: mobile magnifier in landscape on short phones - the small copy of the community cards no longer covers your own cards; it now sits beside your box
+
+2026-09-20 version 2.1.9-web.91:
+- new: mobile magnifier - on your turn, when the community cards are out of view, a small copy of them appears at the top of the table so you can always read the board; tap it to jump to the cards and back. It follows your deck, Interface size and High contrast settings
+
+2026-09-20 version 2.1.9-web.90:
+- bugfix: mobile magnifier - on your turn your own box is now always centred in view; it could end up off-screen on the left or right after the view had followed a player on the side of the table
+
+2026-09-20 version 2.1.9-web.89:
+- bugfix: mobile magnifier - your own box is now magnified and moves with the rest of the table, exactly like the official client, instead of floating at normal size over the zoomed seats (odd overlaps in portrait); on your turn the view shows your box enlarged
+
+2026-09-20 version 2.1.9-web.88:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Burmese too
+
+2026-09-20 version 2.1.9-web.87:
+- new: Burmese (မြန်မာ) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 64 languages
+
+2026-09-20 version 2.1.9-web.86:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Uzbek too
+
+2026-09-20 version 2.1.9-web.85:
+- new: Uzbek (Oʻzbekcha) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 63 languages
+
+2026-09-20 version 2.1.9-web.84:
+- bugfix: Latin-American Spanish - the inactivity warning still used the Spain wording ("Pulsa", "cuenta atrás")
+
+2026-09-20 version 2.1.9-web.83:
+- new: the rules, FAQ, poker hands, how-to-play and glossary pages are now available in Latin-American Spanish too
+
+2026-09-20 version 2.1.9-web.82:
+- new: Latin-American Spanish (Español - Latinoamérica) is now a language of its own, with the vocabulary used in the Americas (computadora, celular, pozo...) - 62 languages in total
+- new: its flag in the language list follows your country (Argentina, Colombia, Chile...), Mexico when the browser does not say
+- improvement: browsers set to a Latin-American Spanish locale get it automatically; the existing Spanish is now listed as Español (España)
+
+2026-09-20 version 2.1.9-web.81:
+- bugfix: the "Private messages" chapter of the built-in help was missing in 43 languages - it is now there in every language
+- bugfix: the tooltip of the chat "mute notification sound" button was shown in English in 52 languages - it is now translated everywhere
+
+2026-09-20 version 2.1.9-web.80:
+- bugfix: browsers set to Traditional Chinese (Taiwan, Hong Kong, Macau) now get the Traditional Chinese interface on the first visit - they used to land on Simplified Chinese and had to switch by hand
+
+2026-09-19 version 2.1.9-web.79:
+- new: the public pages (poker rules, hand rankings, glossary, how to play, FAQ) are now available in Icelandic too
+
+2026-09-19 version 2.1.9-web.78:
+- new: Icelandic (Íslenska) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 61 languages
+
+2026-09-19 version 2.1.9-web.77:
+- new: the public pages (poker rules, hand rankings, glossary, how to play, FAQ) are now available in Gujarati too
+
+2026-09-19 version 2.1.9-web.76:
+- new: Gujarati (ગુજરાતી) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 60 languages
+
+2026-09-19 version 2.1.9-web.75:
+- new: the public pages (poker rules, hand rankings, glossary, how to play, FAQ) are now available in Kannada too
+
+2026-09-19 version 2.1.9-web.74:
+- new: Kannada (ಕನ್ನಡ) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 59 languages
+
+2026-09-19 version 2.1.9-web.73:
+- new: the public pages (poker rules, hand rankings, glossary, how to play, FAQ) are now available in Marathi too
+- bugfix: in the Malayalam poker glossary, the "Freeroll" entry carried the definition of another term - it now explains what a freeroll is
+
+2026-09-19 version 2.1.9-web.72:
+- new: Marathi (मराठी) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 58 languages
+
+2026-09-19 version 2.1.9-web.71:
+- new: the public pages (poker rules, hand rankings, glossary, how to play, FAQ) are now available in Malayalam too
+
+2026-09-19 version 2.1.9-web.70:
+- new: Malayalam (മലയാളം) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 57 languages
+
+2026-09-19 version 2.1.9-web.69:
+- bugfix: the welcome notice for registered players said ranking games start with blinds at 55 in Afrikaans, Filipino, Indonesian, Lithuanian, Turkish and Traditional Chinese - it is 50, as in every other language
+
+2026-09-19 version 2.1.9-web.68:
+- new: the public pages (poker rules, hand rankings, glossary, how to play, FAQ) are now available in Telugu too
+
+2026-09-19 version 2.1.9-web.67:
+- new: Telugu (తెలుగు) is now available in the language list - the whole interface, the built-in help and the welcome notices are translated, bringing the client to 56 languages
+
+2026-09-19 version 2.1.9-web.66:
+- improvement: mobile zoom (magnifier) now behaves like the Android app - on your turn it shows your own area at once, on a new community card it moves to the board, it jumps to a player as soon as he acts, and after a showdown the next hand starts centred
+
+2026-09-19 version 2.1.9-web.65:
+- bugfix: mobile zoom (magnifier) - with "Remove departed players" enabled, the zoomed view no longer stays stuck on an empty spot when a player leaves the table; it follows the seat it was showing, or returns to the table centre (same fix as the desktop client)
+
+2026-09-19 version 2.1.9-web.64:
+- bugfix: training mode - when the table gets down to two players, nobody has to post the big blind twice in a row any more (same fix as the desktop client)
+
+2026-09-18 version 2.1.9-web.62:
+- improvement: the game starts faster and uses far less data - only your language is downloaded instead of all 55 (the others load when you pick them)
+- bugfix: on an unstable connection the game could fail to start because one of the 55 language files did not load - it now retries, and falls back to English rather than not starting
+
+2026-09-17 version 2.1.9-web.60:
+- improvement: the avatar Import tab now says clearly that any image works - it is cropped and resized automatically, you do not need to prepare a 96x96 file yourself
+- improvement: the "Restore defaults" settings category is now called "Backup & reset", so the config.xml and backup import/export buttons are easier to find
+- bugfix: the help pointed to the wrong settings category for the config.xml import/export
+
+2026-09-15 version 2.1.9-web.59:
+- bugfix: the community cards in portrait mode are now closer in size to the desktop client
+
+2026-09-15 version 2.1.9-web.58:
+- bugfix: folded players no longer show a red X on their avatar - the fold badge and dimmed cards already make it clear
+
+2026-09-15 version 2.1.9-web.57:
+- bugfix: training mode could fail to start when you had no connection, since the bots' chat lines were not stored for offline use
+
+2026-09-15 version 2.1.9-web.55:
+- improvement: the bots' chat one-liners are now translated into all 55 interface languages, not just English and French
+
+2026-09-15 version 2.1.9-web.54:
+- new: bots now sometimes speak up in chat with personality-matched one-liners (a boast, a groan, a "gg") instead of only emoji reactions - available in English and French for now, other languages coming soon
+
+2026-09-15 version 2.1.9-web.51:
+- bugfix: the mini music widget is now properly narrow on phones too, not just on desktop
+2026-09-15 version 2.1.9-web.50:
+- improvement: adjusted the music player based on feedback - the like/dislike buttons now sit next to the time counter, and the mini widget is narrower
+2026-09-15 version 2.1.9-web.49:
+- improvement: the mini music player now has like/dislike buttons, and the full player is more compact
+2026-09-15 version 2.1.9-web.48:
+- improvement: the card flip animation on the table now matches the desktop client exactly
+2026-09-14 version 2.1.9-web.47:
+- improvement: on the live spectator page (/live), opening a table's details now closes any other one you had open, so only one shows at a time
+2026-09-14 version 2.1.9-web.46:
+- bugfix: fixed the table jittering during actions and oversized seats on the Boardwalk, High Roller and Onyx Pill seat styles
+2026-09-14 version 2.1.9-web.45:
+- bugfix: the flop/turn/river cards are now grouped and spaced exactly like the desktop client, and the pot marker now uses the same coin icon as your bet chips
+2026-09-14 version 2.1.9-web.44:
+- bugfix: fixed two table display bugs - a new game with fewer players than the previous one could keep the old seat layout, and the pot marker could grow too big or overlap the top player's box on some tables
+2026-09-14 version 2.1.9-web.43:
+- new: the poker rules and FAQ pages are now available in Estonian, Latvian, Slovenian, Bosnian, Macedonian, Malay, Albanian, Punjabi, Amharic and Khmer - every language now has them
+2026-09-14 version 2.1.9-web.42:
+- improvement: the help pages, public pages and FAQ now all state the correct number of interface languages (55) in every language
+2026-09-14 version 2.1.9-web.41:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) are now available in Khmer too
+2026-09-14 version 2.1.9-web.40:
+- new: the built-in help and the welcome notices are now available in Khmer too
+2026-09-14 version 2.1.9-web.39:
+- new: Khmer (ខ្មែរ) is now available in the language list - the whole interface is translated, bringing the client to 55 languages
+2026-09-14 version 2.1.9-web.38:
+- bugfix: the mute button in the lobby chat header wasn't showing up - a leftover style rule was hiding it by mistake
+2026-09-14 version 2.1.9-web.37:
+- new: a small bell icon next to the trash icon in the chat header (table chat and lobby chat) lets you mute that chat's notification sound - each one is independent
+2026-09-14 version 2.1.9-web.36:
+- bugfix: the Tables/Players tab bar on the live spectator page (/live) now stays properly pinned to the top while scrolling in every browser, not just some
+2026-09-14 version 2.1.9-web.35:
+- bugfix: on the live spectator page (/live), expanding a table row no longer causes the Tables/Players tab bar to briefly flash stale content
+2026-09-14 version 2.1.9-web.34:
+- bugfix: on iPhone, a sliver of the previous table row no longer peeks above the Tables/Players tab bar on the live spectator page (/live) while scrolling
+2026-09-14 version 2.1.9-web.33:
+- bugfix: on the live spectator page (/live), the Tables/Players tab bar no longer looks see-through when it's pinned at the top while you scroll
+2026-09-14 version 2.1.9-web.32:
+- bugfix: on the live spectator page (/live), a folded player's "Fold" tag really stays fully readable now - the previous fix missed that the tag sits inside the same box as the cards
+2026-09-14 version 2.1.9-web.31:
+- improvement: the theme button on the live spectator page (/live) now only switches between light and dark - the confusing third "automatic" step is gone
+2026-09-14 version 2.1.9-web.30:
+- bugfix: on the live spectator page (/live), the Tables/Players tab bar now stays put while you scroll the list instead of scrolling away with it
+2026-09-14 version 2.1.9-web.29:
+- improvement: the "Currently idle" label on the live spectator page (/live) is now translated in all 54 languages instead of just English and French
+2026-09-14 version 2.1.9-web.28:
+- new: the live spectator page (/live) now shows "Currently idle" for players who aren't seated or watching a table, like the old spectator tool did
+2026-09-14 version 2.1.9-web.27:
+- bugfix: on the live spectator page (/live), a folded player's name and avatar no longer grey out along with their "Fold" tag - only their cards do, so the tag stays easy to read
+2026-09-14 version 2.1.9-web.26:
+- bugfix: the live spectator page (/live) no longer plays a chat notification sound for every single message - it was going off constantly instead of just occasionally
+2026-09-14 version 2.1.9-web.25:
+- bugfix: the admin editors for the welcome message, notices and polls now list all 54 languages (Amharic, Bengali, Filipino, Indonesian, Punjabi, Swahili and Thai were missing from the picker)
+2026-09-14 version 2.1.9-web.24:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) are now available in Amharic too
+2026-09-14 version 2.1.9-web.23:
+- new: the built-in help and the welcome notices are now available in Amharic too
+2026-09-14 version 2.1.9-web.22:
+- new: Amharic (አማርኛ) is now available in the language list - the whole interface is translated, bringing the client to 54 languages
+2026-09-14 version 2.1.9-web.21:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) are now available in Punjabi too
+2026-09-13 version 2.1.9-web.20:
+- new: the built-in help and the welcome notices are now available in Punjabi too
+2026-09-13 version 2.1.9-web.19:
+- new: Punjabi (ਪੰਜਾਬੀ) is now available in the language list - the whole interface is translated, bringing the client to 53 languages
+2026-09-13 version 2.1.9-web.18:
+- bugfix: the live spectator tool (/live) could pop up a game-invite banner if another player invited the spectator - it's now silenced there, since a spectator can't join a game anyway.
+2026-09-13 version 2.1.9-web.17:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) and the welcome notices are now available in Albanian too
+2026-09-13 version 2.1.9-web.16:
+- new: Albanian (Shqip) is now available in the language list - the whole interface and the built-in help are translated, bringing the client to 52 languages
+2026-09-13 version 2.1.9-web.15:
+- bugfix: the live spectator tool's Players tab no longer shows the same player several times after they reconnect
+2026-09-13 version 2.1.9-web.14:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) and the welcome notices are now available in Malay too
+2026-09-13 version 2.1.9-web.13:
+- new: Malay (Bahasa Melayu) is now available in the language list - the whole interface and the built-in help are translated, bringing the client to 51 languages
+2026-09-13 version 2.1.9-web.12:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) and the welcome notices are now available in Macedonian too
+2026-09-13 version 2.1.9-web.11:
+- new: Macedonian (Македонски) is now available in the language list - the whole interface and the built-in help are translated, bringing the client to 50 languages
+2026-09-13 version 2.1.9-web.10:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) and the welcome notices are now available in Bosnian too
+2026-09-13 version 2.1.9-web.9:
+- new: Bosnian (Bosanski) is now available in the language list - the whole interface and the built-in help are translated, bringing the client to 49 languages
+2026-09-13 version 2.1.9-web.8:
+- bugfix: the guest-mode and registered-account welcome notices, and the LAN/dedicated-server notice, are now available in Estonian and Latvian too (they had been missing since those languages launched).
+2026-09-13 version 2.1.9-web.7:
+- bugfix: the guest-mode and registered-account welcome notices weren't available in Slovenian yet, even though the rest of the interface was - fixed.
+2026-09-13 version 2.1.9-web.6:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) are now available in Slovenian too, so a search in Slovenian lands on a Slovenian page instead of the English one
+2026-09-13 version 2.1.9-web.5:
+- new: Slovenian (Slovenščina) is now available in the language list - the whole interface and the built-in help are translated, bringing the client to 48 languages
+2026-09-13 version 2.1.9-web.4:
+- bugfix: the Changelog tab used to show one small block per build, which made recent updates look scattered; each update to this same overall version now reads as a single clean entry, grouped by New / Improvements / Bug fixes.
+2026-09-13 version 2.1.9-web.3:
+- bugfix: table styles with their own action buttons (Ivoire & Chêne, Casino, imported skins) could quietly fall back to the default plain buttons after reloading the page. They now stick.
+- bugfix: removed an extra floating chat button in the corner - the one on the table felt already does the job.
+2026-09-13 version 2.1.9-web.2:
+- new: if this server only allows one LAN/dedicated address, you'll now see a short note explaining that and pointing you to running your own copy of the web client if you want to connect elsewhere (off by default, set up by the server admin).
+2026-09-13 version 2.1.9-web.1:
+- bugfix: if your avatar image can't be sent to the table (too complex to fit the server's size limit once re-encoded, or an unreadable file), you now get a clear message instead of it silently stopping to show up on future connections.
+2026-09-12 version 2.1.9-web.0:
+- improvement: the chances panel is easier to read - categories that are impossible with your current cards now stay visible instead of nearly disappearing, and the odds bars themselves are a bit more visible too.
+2026-09-12 version 2.1.8-web.158:
+- bugfix: the reactions window's page switcher (‹ 1/3 ›) now follows the table style's colours too, matching the title fix from the previous update.
+2026-09-12 version 2.1.8-web.157:
+- bugfix: the reactions window's title now follows the table style's text colour like the chat/log windows do, instead of always staying the app's default gold.
+2026-09-12 version 2.1.8-web.156:
+- bugfix: tabbing through the login screen with the keyboard could eventually scroll down to a floating chat button that only makes sense at the poker table. It now only shows up during a game.
+2026-09-12 version 2.1.8-web.155:
+- bugfix: right after an update, the app could briefly mix a bit of the new version with a bit of the old one (for example a new button showing up without its proper styling) until you reloaded a second time. Updates now always apply as a clean, complete set.
+2026-09-12 version 2.1.8-web.154:
+- bugfix: in the online players list, hiding a column (avatar, in-game, country, actions) no longer makes the name column jump to an unpredictable width - the header buttons and the list now always line up, however many columns you hide and whatever order you hide them in. Hidden columns move into a small "+" button so you can bring them back.
+2026-09-12 version 2.1.8-web.153:
+- improvement: the accessibility button now sits in the same spot in every header (right before the settings/overflow icon) - it was out of place on the login screen and missing altogether from the create-table screen
+2026-09-12 version 2.1.8-web.149:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) are now available in Latvian too, so a search in Latvian lands on a Latvian page instead of the English one
+2026-09-12 version 2.1.8-web.148:
+- new: Latvian (Latviešu) is now available in the language list - the whole interface and the built-in help are translated, bringing the client to 47 languages
+2026-09-12 version 2.1.8-web.147:
+- bugfix: reopening the chat or info drawer via the Accessibility panel at Extra Large no longer leaves keyboard focus stuck outside it - it now lands back in the drawer as intended
+2026-09-12 version 2.1.8-web.146:
+- bugfix: the chat and info drawer buttons in mobile landscape at Extra Large interface size are properly tappable again - they had shrunk below the accessible touch-target size
+2026-09-12 version 2.1.8-web.145:
+- new: the public pages (poker rules, hand rankings, glossary, how to play) are now available in Estonian too, so a search in Estonian lands on an Estonian page instead of the English one
+2026-09-12 version 2.1.8-web.144:
+- new: Estonian (Eesti) is now available in the language list - the whole interface and the built-in help are translated, bringing the client to 46 languages
+2026-09-11 version 2.1.8-web.143:
+- bugfix: action icons (message, ignore, stats) in the online players list are properly lined up under their header icon again - a leftover invisible column was pushing them out of place
+2026-09-11 version 2.1.8-web.142:
+- bugfix: forum posts you already read no longer reappear as unread just because someone replied to the same topic
+2026-09-11 version 2.1.8-web.141:
+- bugfix: hiding a column (in-game status, country, rating) in the online players list now actually gives the name more room - it used to just clear the icon while the same space stayed reserved
+2026-09-11 version 2.1.8-web.140:
+- bugfix: the Local/Training and LAN tabs in the Player profile window now show your real stats and all their sub-tabs (including reset) no matter which mode you're currently connected in - they used to look empty when the mode didn't match
+2026-09-11 version 2.1.8-web.139:
+- improvement: the Player profile window now shows "Local / Training" and "LAN" as two separate tabs, always visible together - LAN keeps all 3 sub-tabs (Session, Total, and the family ranking with its reset button)
+2026-09-11 version 2.1.8-web.138:
+- improvement: the Player profile window (from your own avatar) is now organized as three tabs - Cups, Local/Training, and LAN - each shown only when it applies, instead of a stats box always stacked above the cups
+2026-09-11 version 2.1.8-web.137:
+- bugfix: in LAN or private-server games, clicking your own avatar now lets you open your statistics (score, total stats) and reset them again - this button had accidentally only ever worked when connected to pokerth.net
+2026-09-11 version 2.1.8-web.136:
+- new: the Table ranking window (podium button) now has a LAN tab when you're connected to a LAN or private-server game - it shows the family leaderboard for just the players sitting at this table
+2026-09-11 version 2.1.8-web.135:
+- improvement: pressing Escape now closes the Accessibility panel first if it's open over another screen, such as the login form, instead of acting on that screen underneath - this closes out the Accessibility feature (interface size, high contrast, entry points, mobile layouts); thanks to @seanpianka for the contribution
+2026-09-11 version 2.1.8-web.134:
+- new: the High contrast toggle in the Accessibility panel now actually changes how the app looks - a dedicated high-contrast palette for the interface, felt, and cards; turning it off brings back your exact previous look. This was the last accessibility option still waiting for its on-screen effect - the panel is now fully working end to end
+2026-09-11 version 2.1.8-web.132:
+- improvement: the adaptive layout for large interface sizes now also covers landscape play, and the Hands and Reactions buttons in its bottom bar now open in the right place (this closes the spot mentioned in the previous update)
+- bugfix: pressing Escape on the reactions panel now closes it, like every other panel - it used to toggle "keep window open" instead
+2026-09-11 version 2.1.8-web.127:
+- new: at Extra Large interface size, portrait play now uses an adapted layout - chat and log open as full-screen panels reachable from a bar at the bottom, and the round table buttons make room for it (note: for now the Hands and Reactions buttons in that bar can still open in the wrong spot - a fix is coming very shortly)
+2026-09-11 version 2.1.8-web.124:
+- improvement: the Large and Extra Large interface sizes from the Accessibility panel now also scale up the desktop table during a game (seats, badges, whose turn it is) - the table geometry is unchanged if you leave the setting at Standard
+2026-09-11 version 2.1.8-web.123:
+- improvement: the Large and Extra Large interface sizes from the Accessibility panel now actually enlarge the login screen and the lobby, including the table list once it's populated (high contrast still has no visible effect yet - it's coming in a later update)
+2026-09-11 version 2.1.8-web.122:
+- new: an Accessibility button is now available before login and in the lobby and game headers, opening a panel where you can pick an interface size, turn on a high-contrast mode, and set the browser pinch-zoom permission - your choices are saved and follow you across devices with settings sync (the on-screen effect of interface size and high contrast is coming in the next updates)
+2026-09-11 version 2.1.8-web.121:
+- bugfix: reopening the app could show the previous version for a moment with no update prompt, especially after it had been in the background a while; it now catches up and reloads once by itself
+2026-09-10 version 2.1.8-web:
+- new: in LAN and private-server games, the ranking window (trophy button) has a LAN tab, opened by default - it lists every player of the server and can be sorted by net winnings, winnings per 100 hands, win rate, games won or best streak
+- improvement: in training mode the cards are now shuffled, and the bots decide, with the browser's cryptographic random generator, as in the desktop client and on the server - the cards still to come and the bots' hidden cards can no longer be worked out from the ones already shown
+- improvement: more of the client works from the keyboard, as in the desktop client - About, privacy, table ranking and player pages scroll with Page Up/Down, Home and End as soon as they open; the ranking opens in its search box and Enter searches at once; the arrow keys move through the settings categories and the forum news list, and back from a post returns to it; the end-of-game window starts on Play again in training and Escape closes it; Escape on the login form goes back to the choice of mode; Ctrl+Enter saves a player note
+- improvement: with a keyboard, each screen now starts with the focus where you need it, as in the desktop client - the Internet card on the opening screen, your nickname (or your password once the nickname is filled) on the login step, the table name when creating a game and the Create button in training - and Enter in any field of the game settings creates the table
+- bugfix: in the live spectator view on pokerth.net, a long list of tables was cut off at the bottom with no way to scroll; the list scrolls again, and a watched table uses the whole height of the view instead of a squeezed strip
+- new: the lobby table list works with the keyboard, as in the desktop client - reach it with Tab, move between tables with the arrow keys (Home/End for the first and last), and press Enter to join the selected table (on a narrow screen, Enter shows its details); the keyboard shortcuts page of the help lists it
+- improvement: with a keyboard, the kick and report confirmations now open with the focus on the confirm button, as in the desktop and mobile clients - Enter confirms, Tab reaches Cancel, Escape still cancels
+- improvement: with a keyboard, windows that pop up now put the focus on the safe button, as in the desktop and mobile clients - Decline on a game invitation (Escape declines too), Cancel when leaving a game or disconnecting, OK on the inactivity and connection-lost messages - so an Enter pressed by accident never takes you anywhere; Tab reaches the other button, and the focus goes back where it was when the window closes
+- improvement: emoji reactions now play at the same pace as in the desktop and mobile clients - each animation lasts a quarter longer (about 2 seconds) and the bomb explodes as it lands, so a reaction looks the same to every player at the table
+- improvement: anonymous visit identifiers of devices not seen for about 13 months are now deleted too, as the privacy page says
+- bugfix: the error report option now says exactly what is sent (error details, browser and shortened IP address) instead of "no personal data"
+- bugfix: the settings sync option no longer says it is opt-in - it is on by default for registered accounts, as the privacy page explains
+- bugfix: the table picture could jump by one pixel during a hand, for example right after your turn; it now stays still and only moves when the window size or the table style changes
+- improvement: the privacy page now lists everything the web client sends and where - settings sync, error reports, polls, translation, radios - and tells you to contact the pokerth.net administrators for any data request
+- improvement: the default cards and the default PokerTH table (felt, dealer and blind buttons, action buttons) are now stored with the app, so an offline training game shows them without a connection, even right after an update
+
+2026-09-10 version 2.1.8-web:
+- bugfix: once the web client had been updated, the offline training mode against bots could refuse to start without a connection ("Offline init failed") until it had been opened online once; everything it needs is now stored with the app on install, so it starts with no network at all
+
+2026-09-10 version 2.1.8-web:
+- bugfix: a palette button and an empty button had appeared in the lobby and table headers; they belonged to the spectator view on pokerth.net only and are gone from the web client
+- bugfix: the same player could show one avatar to web players and another to players on the desktop and mobile clients - a picture changed while connected, or brought back with a backup, reached web players only; the avatar now goes through the server alone, as in the official clients, so everyone sees the same one
+- improvement: an avatar chosen while you are connected now takes effect from your next connection, as in the desktop and mobile clients, instead of changing on some screens only
+- improvement: the initial-letter avatar (Aa) is no longer sent as a picture; other players see the default avatar, as they do for a desktop player who has none
+
+2026-09-09 version 2.1.8-web:
+- bugfix: when the inactivity countdown ran out, the warning window stayed on screen with a dead OK button and the lobby behind it never moved, because the disconnection from the server sometimes never reached the browser; the client now ends the session itself a few seconds later and takes you back to the connection screen
+
+2026-09-09 version 2.1.8-web:
+- bugfix: when the server ended the session - kicked, banned, or timed out after 20 minutes without activity - the lobby stayed on screen, frozen, with no word of what had happened; the client now returns to the connection screen and says why, like the desktop and mobile clients
+
+2026-09-09 version 2.1.8-web:
+- bugfix: in the lobby, a player's picture was missing from the online players list on the left - it stayed a plain letter while the very same player showed their picture in the game info panel; pictures that finish downloading now appear everywhere at once
+
+2026-09-09 version 2.1.8-web:
+- bugfix: in the About window, the web changelog repeated the same version heading - and its "New", "Improvements" and "Bug fixes" titles - once per deployment; every entry of a version is now gathered under a single heading, the way the changelog of the installable clients reads
+
+2026-09-09 version 2.1.8-web:
+- bugfix: the live figures on the opening screen could blow the Internet card up to the full height of the screen on a browser still holding an older stylesheet - the icons now carry their own size and no longer depend on it
+
+2026-09-09 version 2.1.8-web:
+- improvement: the live figures on the opening screen now show all four counters the website does - players online, tables running, players waiting and games today - as an icon and a number each, so nothing gets cut off on a narrow phone screen
+
+2026-09-08 version 2.1.8-web:
+- improvement: the Ivoire & Chene table now uses the finer colours of the official client - the chat, log and info boxes sit a shade deeper than the felt, so light things on them (emoji, avatars) keep an edge, and the muted text, the side-pot winner and the send symbol read more clearly on cream
+
+2026-09-08 version 2.1.8-web:
+- new: the Internet card on the opening screen now shows how many players are on pokerth.net and how many games have been played today, refreshed while you look at it, so you can tell whether the tables are busy before you connect
+
+2026-09-08 version 2.1.8-web:
+- new: the game log now colours its lines the way the desktop and mobile clients do - the winner of the pot, the winner of a side pot, and the flop/turn/river steps each have their own colour, so a hand can be read at a glance instead of line by line
+- improvement: on a light table style such as Ivoire & Chene, the chat and log colours are the darkened set the official client uses there, instead of the yellow and orange meant for a dark felt
+- improvement: an imported table style can now set those colours itself (accent, winner, side pot, board, send), like the styles shipped with the official client; anything it leaves out is filled in to match the brightness of its own panel background
+
+2026-09-08 version 2.1.8-web:
+- bugfix: playing on a LAN or dedicated server works again from anywhere - the client was dialling the wrong address for the relay and never reached it, so the connection failed with "is the proxy running?" no matter which server you typed
+- improvement: a LAN game now always goes through the site's relay, and only the Internet connection carries the operator's real-IP header - the two no longer get in each other's way
+
+2026-09-08 version 2.1.8-web:
+- improvement: when the site turns a connection away - too many tabs open, too many attempts in a row, or a blocked address - the server operator can now see it in the logs instead of nothing at all
+
+2026-09-07 version 2.1.8-web:
+- new: right-click a player at the table - or press and hold on a touch screen - to open a menu with the note, the player profile, ignore and report avatar, the same gesture the desktop and mobile clients offer; "My note" opens the player card straight on the note, with the cursor in the field
+- improvement: a plain tap on a seat still opens the full player card, exactly as before - the menu is a shortcut, not a detour
+
+2026-09-07 version 2.1.8-web:
+- improvement: your own name is now bold in the players list, so you find your line at a glance
+
+2026-09-07 version 2.1.8-web:
+- improvement: in the lobby players list, your rating of a player now sits in the star column instead of after their name - the same column that marks your own row, so the two never collide; the colour dot stays next to the name
+- bugfix: stars are gold again in every theme - the PokerTH theme paints its accent white, which turned them white too; they now follow each theme's own gold
+
+2026-09-07 version 2.1.8-web:
+- improvement: the colour dot now sits next to the star rating, after the player's name instead of in front of it - both marks about the same player are read together, at the table and in the lobby players list
+
+2026-09-07 version 2.1.8-web:
+- improvement: at the table, a player's star rating now sits at the right end of their name line instead of in front of the name, exactly where the desktop and mobile clients put it - the name simply shortens against it, and the colour dot stays in front
+
+2026-09-07 version 2.1.8-web:
+- new: your player notes and star ratings now travel in the config.xml export/import, in the same format the desktop and mobile PokerTH clients use - a note written there shows up here, and one written here shows up there
+- improvement: importing a config.xml never erases your colour labels; the official format has no field for them, so they simply stay in this client
+
+2026-09-07 version 2.1.8-web:
+- improvement: the player card window now keeps one fixed width instead of being stretched sideways - the card is a centred column, so a wide window only added empty margins; the height still adjusts, and the season cups keep their own window
+
+2026-09-07 version 2.1.8-web:
+- new: rate a player from zero to five stars, right above your private note on their card - tap the star you want, tap it again to take it back; the rating shows as "★N" in front of their name at the table and in the players list, like the desktop and mobile clients
+- improvement: ratings travel with your notes between devices, and the tooltip in front of a name now shows the colour label, the rating and the start of your note together
+
+2026-09-07 version 2.1.8-web:
+- bugfix: a faulty or hostile server can no longer flood the browser with avatar data - a picture that is bigger than announced, or that arrives incomplete, is now dropped instead of being kept in memory or cached under the wrong name
+
+2026-09-07 version 2.1.8-web:
+- improvement: the client now tells the server which system your browser runs on (Windows, macOS, Linux, Android or iOS), the way the desktop and mobile clients already do - it lets the server operator see which platforms players actually use; nothing else about your browser is sent
+
+2026-09-07 version 2.1.8-web:
+- bugfix: connecting to your own LAN or dedicated server works again when the operator forwards player IPs to the game server - that setting now applies only to the server the site is configured for, and no longer to an address you type in yourself
+
+2026-09-06 version 2.1.8-web:
+- improvement: the guest and account notices are now hand-written in all 45 languages of the app (using each language's own game-type names) instead of machine-translated - no more odd wording
+- bugfix: enabling a notice without touching the pre-filled text no longer freezes it - future improvements to the built-in messages reach everyone automatically
+
+2026-09-06 version 2.1.8-web:
+- new: tell everyone what you think of the music - two thumbs under the track title let you say whether you like what is playing, radios included; one vote per device, changeable or removable at any time, and nothing about who voted is recorded
+- new: voting is blind by default - you see your own thumb but not the totals, so the numbers on screen cannot sway your answer; the server operator can reveal the counts
+
+2026-09-06 version 2.1.8-web:
+- improvement: clearer default notices - the chat sections now explain in plain words why an envelope can be missing (your own line, a guest, someone mid-game), and the account notice describes each community scene (BBC time-based games, WeCup tournaments, the Monthly Cup) with its own ranking
+
+2026-09-06 version 2.1.8-web:
+- improvement: the guest and account notices now appear only once - after tapping "I understand" they stay hidden until the operator edits the message; with a pokerth.net account the acknowledgement follows you across devices
+
+2026-09-06 version 2.1.8-web:
+- improvement: both default notices now explain when the private-message envelope shows up - only next to players who are online and not seated at a running game
+
+2026-09-06 version 2.1.8-web:
+- improvement: the default message for registered accounts now details the ranking scene - ranking games are fixed 10-player tournaments that only start when full, results feed the official pokerth.net ranking, and the community BBC, WeCup and Monthly Cup competitions are mentioned
+
+2026-09-06 version 2.1.8-web:
+- improvement: the guest and registered-account notices now ship with a ready-made English text (access, chat, game types, ranking) - it is used until the operator writes their own, and the app translates it into each player's language
+
+2026-09-06 version 2.1.8-web:
+- new: the guest notice now has a twin for registered accounts - a popup shown on every connection made with a pokerth.net account, written per language in the admin page and auto-translated for the others
+
+2026-09-06 version 2.1.8-web:
+- new: server operators can show a notice to guests - a popup that appears on every connection made as a guest in Internet / PokerTH.net mode, typically explaining what guests can and cannot do compared to a registered account; it is written per language in the admin page and auto-translated for the others
+
+2026-09-06 version 2.1.8-web:
+- new: player notes - tap an opponent (seat or players list) to write a private note about them and mark them with one of six colour labels; the colour dot shows in front of their name at the table and in the players list, and hovering it previews your note
+- new: the meaning of each colour label can be renamed (for example turn "Danger" into "Bluffs a lot") - the new name applies to every player carrying that colour
+- new: notes and labels follow your account between devices - notes taken on the phone and on the desktop are merged, never overwritten
+
+2026-09-04 version 2.1.8-web:
+- bugfix: hand-history recording no longer fails when Android closes its database in the background - the client reopens it and carries on; if the device storage is completely full, recording pauses quietly for the session instead of erroring after every hand
+- improvement: automatic error reports no longer pick up noise caused by browser extensions (crypto wallets, page translators), so real client issues stand out
+
+2026-09-03 version 2.1.8-web:
+- bugfix: with a seat style other than PokerTH, bets are shown next to the player box again, as they were before the bet display option was introduced
+
+2026-09-03 version 2.1.8-web:
+- improvement: the bet display choice (inside or next to the player box) now belongs to the PokerTH seat style only - the setting appears under its entry in the Seats tab, and other seat styles keep their own look
+
+2026-09-03 version 2.1.8-web:
+- bugfix: with bets shown inside the boxes, the bet of the top-centre player (and of the bottom spectator seat) was half cut off - it now sits fully inside its strip like every other seat, as in the desktop client
+
+2026-09-03 version 2.1.8-web:
+- improvement: opponent boxes now have the official fixed width - chip stacks and long names no longer resize the boxes, so the community cards and the action bar keep a constant size as the amounts change, exactly like the desktop client
+- bugfix: the highlight that slightly enlarges the box of the player whose turn it is no longer nudges the table layout as the turn moves around
+
+2026-09-03 version 2.1.8-web:
+- bugfix: the table no longer shifts when bets appear - with bets shown inside the player boxes, the background image, the community cards and the seat layout could nudge every time a bet strip opened or closed; everything now stays perfectly still, as in the desktop client
+
+2026-09-01 version 2.1.8-web:
+- bugfix: connecting to an older LAN or dedicated PokerTH server (before 2.1.8) no longer fails with "Version incompatible" - the client automatically retries by introducing itself the classic way when the server does not know the new web client type
+- improvement: the changelog in About now groups each version's entries under New / Improvements / Bug fixes headings, in your language, so it is much easier to scan
+- bugfix: when a player voluntarily shows their cards after everyone else folded before the river, the log no longer names a hand - only the cards are shown, as in the desktop client
+- improvement: the lobby and game chats now keep the last 400 lines instead of growing forever, so long sessions stay fast, as in the desktop client
+- improvement: your own box now lifts slightly when it is your turn, exactly like the official client; its size ratio next to the opponents follows the 2.1.8 measures, and on phones in portrait the bottom opponent row can no longer touch your box
+- improvement: dealer and blind pucks now sit exactly where the official 2.1.8 client puts them - left-column seats carry bet and puck on their left in landscape, the top-centre box splits them (bet right, puck left), the spectator's bottom seat does the same, and with bets inside the box the side puck is centred next to the box
+- improvement: bigger, better-placed player boxes on phones, as in the official 2.1.8 client - in portrait the seat rows now adapt to the real box size instead of fixed positions, the community cards fill the free middle band, and the space kept next to the boxes matches your bet display style (less is reserved when bets sit inside the box)
+- improvement: the welcome message and server announcements are now translated into your language on every browser - they use the same translation service as the chat and the forum when the built-in browser translator is not available; turning off chat translation also keeps them in their original language
+- improvement: the local-backup banner now also appears on a brand-new browser, so you can create your first backup right away
+- improvement: the banner offering to restore your settings now explains itself - the browser can keep a local backup of your settings in a folder of your choice, with clear Create / Restore / Later buttons; creating a backup never overwrites an existing backup file
+- improvement: the web client now follows the PokerTH 2.1.8 release running on pokerth.net
+- improvement: the client now introduces itself to the server as a web client for real - the switch shipped earlier but stayed off until the server could recognise it; web players are now counted as their own client type in server statistics, the Live/Spectator tool and the game-server dashboard
+- improvement: the stats HUD on the seats is no longer marked as beta - it is an official feature of the web client, still off by default in Advanced options > Assistance
+- improvement: bets are now shown inside the player box by default on phones and tablets too, as in the official client since 2.1.8 - the tray under the box needs no room around the boxes, which suits small screens best. Your own choice in Settings > Styles > Seats, "Bet display", is kept as it is
+- new: the Ivoire & Chêne table style - a light oak table with an ivory felt and a brass rail, set in a library, with matching cream buttons and pucks. The first light table of the collection; the chat and log panels follow with a warm parchment tint. Settings > Styles > Table
+- improvement: the cards of your deck are loaded in the background when you sit down at a table, so the first hands no longer show blank cards for a moment on mobile networks
+- improvement: the assistance win percentage is computed in the background and no longer freezes the table for up to a second on phones after the flop, turn and river; it is also a little more precise
+- bugfix: the community cards no longer flicker at the turn and the river - cards already on the board stay put and only the new card flips, as in the desktop client; the river card also no longer showed up before the turn card
+- improvement: the table previews in Settings > Styles > Table are the freshly rendered ones from the 2.1.8 desktop client - every table now has a landscape and a portrait preview, showing the bets inside the player boxes, and the default table and Green Casino get a real preview instead of a plain felt crop
+
+2026-08-13 version 2.1.7-web:
+- new: private messages, like the desktop client - envelope next to a player's name or in the lobby header, conversations listed down the left with message bubbles, translation globe on received messages, one inbox per signed-in account; closed while a hand is running and never sent to guests, exactly as the desktop client does
+- new: player profiles now show what the desktop client shows - current season rank, score, average, games and points, the last five finishes, placement breakdown with charts, and the cups of all three rankings; the player card and the game info card are ordinary windows you can move and resize, the lobby stays usable behind them
+- new: the players list tells you where someone is playing - rest your mouse on a name, or open the card on a phone; server admins get the kickban hammer directly in the list
+- new: 90 emoji reactions instead of 30, on three pages you can flip or swipe - faces, hands and party, and a poker page with the shark, the fish, the chicken, the chip rack, a bomb that really explodes and a water pistol that really fires; reactions now reach the table almost instantly
+- new: the Disco table style - a seventies club lounge with mirror ball and neon sign - with the Blacklight 4c card deck and the Disco card back to match (upstream 2.1.8 style packs); and the BBC Anthem table theme with its card back (by BaShFX)
+- new: choose where bets are shown - in a small tray under the player box (new default on desktop, like the official client) or next to the box as before (default on phones)
+- new: bet keypad - on touch devices it opens inside the action bar so nothing jumps around; on computers it floats just above the action bar. The bet slider moves in the same steps as the desktop client and is much easier to use with a finger
+- new: the "your turn" notification carries Fold and Check/Call buttons, so you can play a hand from the notification itself
+- new: automatic backup - pick a folder once and the app keeps your backup file up to date there, and offers to restore everything in one click if the browser storage was wiped (desktop Chrome, Edge and Opera); the app also asks the browser for persistent storage
+- new: open with / share to PokerTH - a style pack, a backup file, a desktop config.xml or an invitation link sent to the installed app is imported or opened on arrival; invitation links open in the app instead of a browser tab
+- new: "invite friends" opens a share window - QR code, copy button, whatsapp/telegram/e-mail/sms shortcuts and the phone share sheet; an invite link shows which table you are invited to right on the login screen, and keeps the server address it came from
+- new: custom sounds - replace any game sound with your own audio file in advanced options / sound
+- new: report an inappropriate avatar from a player's profile - the same report the desktop client sends, available on phones too
+- new: five more interface languages - Indonesian, Thai, Filipino, Bengali and Swahili - 45 in total, help included
+- new: the poker rules, hand rankings, how-to-play guide, glossary and FAQ pages are now written in all 45 languages, using the same hand names as the game itself; links between them keep your language, right-to-left languages read right to left, and card sequences always read left to right
+- new: three pages you can read without opening the app - hand rankings with the odds of each one, a step-by-step how-to-play guide, and a glossary of fifty-five poker terms; sharing a link to them shows a proper preview card
+- new: the "suggest players" button in invitation games now also works for BBC and WEC community admins at their community's tables, and lists one player per line; the Monthly Cup templates fill in the real name of the current tournament
+- new: session logs - select several logs and delete them in one go, move through the list with the arrow keys
+- new: admin page - automatic updates that wait until nobody is connected, weekly reset for the shared leaderboard, music play counts, per-day language chart and "show all" breakdowns on the traffic page, search-engine settings with AI-crawler refusal and IndexNow
+- improvement: the web client now introduces itself to the server as its own client type, so server statistics can tell web players apart
+- improvement: the app opens from its local copy first and refreshes in the background, downloads updates a few files at a time, and retries a script that failed to load - pages and tables come up instantly even when the server is briefly busy
+- improvement: the game proxy protects itself against connection floods - regular play is unaffected
+- improvement: the server's inactivity warning is a proper dialog with a countdown, a sound and an OK button
+- improvement: chat and private-message translation falls back to a second service when the first one is temporarily blocked (VPN users especially), and tells you when nothing works at all
+- improvement: choosing a photo as your avatar is lighter on memory on phones, and your avatar is prepared once when you pick it instead of being re-processed at every sign-in
+- bugfix: losing your connection during a running game no longer costs you your seat - the client sits back down at the next hand, within the five minutes the server holds it
+- bugfix: a player who walked away from a table kept their seat for ever - seats are now released after the server's inactivity timer, like the desktop client
+- bugfix: the lobby could stay on screen with a frozen table list long after the connection had died - the client now notices and reconnects on its own; retries after a refused connection are properly spaced out so the server no longer blocks the address
+- bugfix: signing in on pokerth.net stopped working with a "version not supported" error after a server update
+- bugfix: "IP address blocked" when two web players joined the same table - the server now sees each player's real address
+- bugfix: the "idle players" view no longer lists spectators, and a spectator's status light shows which table they are watching, like the desktop client
+- bugfix: the "suggest players" button had gone quiet - the suggestion was swallowed by the chat cleanup; it shows up again, only for you
+- bugfix: on iPhone and iPad, the app installed on the home screen opened on a white screen; the player card and the game info card keep clear of the notch and the status bar
+- bugfix: the app sometimes offered an update that was already installed, and a newly imported seat pack only showed up after the offline cache renewed itself
+- bugfix: the automatic server update could restart in the middle of a game when the only players connected were on phones with the screen off
+- bugfix: the All-In button was hard to read on the Green Casino table in light mode; the Monthly Cup link shows the real Monthly Cup badge; the tabs of the About window no longer break words in the middle on phones
+
+2026-08-05 version 2.1.6-web:
+- new: forum news window in the lobby - the latest pokerth.net forum posts are readable in the app, with an unread counter; read state is synced across devices for authenticated accounts
+- new: the table admin of a game is shown in the game list, the lobby player lists and the waiting room (QML parity)
+- new: the ranking page explains how the PokerTH ranking is calculated (QML parity)
+- new: changelog tab on the About page - the one you are reading
+- new: default4c card deck - four coloured suits (PokerTH 2.1.6)
+- new: table invite links - an "Invite friends" button in the waiting room
+- new: opt-in PROXY protocol header, so the game server sees each web player's real address instead of the proxy's
+- new: Arabic, Persian, Hebrew and Urdu interface languages - 40 languages in total
+- improvement: reconnection after a lost connection fine-tuned - cancel button, seat-reserved notice, readable error reasons, and every retry resumes the old session first (QML 2.1.6 parity)
+- improvement: the AFK timeout is reset on real user activity only (QML 2.1.6 parity)
+- improvement: ignoring a player also hides their emoji reactions
+- improvement: light mode surfaces aligned with PokerTH 2.1.6 - grey page, white content boxes
+- improvement: music and sounds survive iOS audio interruptions and network handovers
+- improvement: proxy hardening mirroring the upstream server fixes - bounded send queues, ingress validation, avatar decode limits, TLS public-key pinning
+- improvement: optional search-engine layer (admin-controlled, off by default) with server-rendered rules and FAQ pages
+- bugfix: an intended check could turn into a call when a raise arrived at the same moment (QML 2.1.6 parity)
+- bugfix: a pre-armed Check/Call no longer fires as an unintended call after a late raise
+- bugfix: connecting in training mode no longer overwrites the remembered LAN server settings
+- bugfix: stray background bands in the installed PWA on iOS and iPadOS
+
+2026-07-30 version 2.1.5-web:
+- new: vector avatar creator - a step-by-step wizard with a silhouette-coherent catalogue of faces, hair, outfits and accessories
+- new: avatar studio window with Gallery, Create and Import tabs
+- new: playing-style quadrant on the HUD seat badge; a player's range grid opens straight from their row in the stats table
+- improvement: the create-game form is seeded from the player's own preferences and remembers the last table name actually typed
+- improvement: join failures are surfaced clearly, with a watchdog for silent WebSocket deaths
+- improvement: spectators are view-only - chat and emoji reactions are locked while watching
+- bugfix: forum-reported bugs - reconnection, big-blind pre-actions, heads-up board layout
+
+2026-07-22 version 2.1.4-web.0:
+- first release under the upstream-aligned version scheme (major.minor.patch follows the PokerTH release, -web.N counts web deployments)
+- new: in-app multilingual help - ten chapters covering the whole client, translated into every interface language
+- new: in-app debug log view like the QML client's, and hand-log upload through the official pokerth.net analysis pipeline
+- new: music playlist and live web radios; stats HUD with ATS and FTS, automatic .pdb hand-log saving
+- improvement: QML parity pass on seats (geometry, fold opacity, accents), the action bar (F1-F4 pre-actions, round gates, themed radii) and game-log scrollback
+- improvement: full i18n sweep - the last hard-coded strings replaced by translated catalogue entries
+
+Before 2026-07-22 (0.3.x beta series):
+- initial development of the web client - game engine bridge, lobby, tables, offline training against bots, PWA shell, style packs and the WebSocket-to-TCP proxy
+

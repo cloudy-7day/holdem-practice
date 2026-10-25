@@ -1,0 +1,288 @@
+// ═══════════════════════════════════════════════════════════════════
+// Session : navigation d'écrans (show), cycle de connexion (bouton,
+// wake lock), reconnexion/rejoin après coupure, statut, envoi trames
+// — chantier ESM #9f-10 (dernière vague du plan).
+// Fonctions déplacées telles quelles depuis l'IIFE App. Adaptations :
+// t (i18n.mjs), acquireWakeLock/releaseWakeLock (misc.mjs) importés ;
+// _showBanner / _lang via window.* ; `App` reste nu ; directWS via window (9g-A2)
+// (résolus par l'environnement global, comme dans le script classique) ;
+// $( réécrit en document.getElementById(.
+// ═══════════════════════════════════════════════════════════════════
+import { S } from '../game/state.mjs';
+import { t } from '../i18n.mjs';
+import { acquireWakeLock, releaseWakeLock } from '../ui/misc.mjs';
+
+// Track mode + name of last Init sent so we can detect 'rapid mode swap'
+// patterns that the PokerTH server's anti-brute-force flags as
+// suspicious. When the user switches between login modes (guest /
+// unauth / auth / LAN) without enough time between Init messages, the
+// server temporarily blocks the IP. We enforce a minimum gap if the
+// mode or nickname changes between two connect() calls.
+function _connectBtnEl(){ return document.querySelector('#s-connect .btn-primary'); }
+function _beginConnecting(){
+  // Lock the WHOLE connection attempt (click → success OR failure), not just
+  // the short pre-flight waits. Otherwise a re-click DURING the slow auth
+  // handshake tears down the in-flight socket and reopens a fresh one — a
+  // connect/close storm that makes the PokerTH server block the IP (err 7).
+  S._connectingNow = true;
+  var b = _connectBtnEl();
+  if (b) {
+    if (S._connectBtnLabel === null) S._connectBtnLabel = b.textContent;
+    b.disabled = true;
+    b.textContent = '\u23F3 ' + t('connecting');
+  }
+  if (S._connectTimeout) clearTimeout(S._connectTimeout);
+  S._connectTimeout = setTimeout(function(){
+    // If auth never resolves, free the button so the user isn't stuck. We do
+    // NOT close the socket: it may still complete, and a manual re-click will
+    // now cleanly close+reopen (single cycle) via the lingering-WS path.
+    if (!S._connectingNow) return;
+    _endConnecting();
+    try { setStatus(t('connectSlow'), 'err', null, { local: true }); } catch(e) {}
+  }, 20000);
+}
+function _endConnecting(){
+  S._connectingNow = false;
+  S._preserveConnect = false;
+  if (S._connectTimeout) { clearTimeout(S._connectTimeout); S._connectTimeout = null; }
+  var b = _connectBtnEl();
+  if (b) {
+    b.disabled = false;
+    if (S._connectBtnLabel !== null) { b.textContent = S._connectBtnLabel; S._connectBtnLabel = null; }
+  }
+}
+
+// ── DOM ──
+// (const $ retiré — ligne avalée par l'extraction 9f-10, restaurée dans l'IIFE ; hotfix 0.3.849)
+
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  // Fenetre de classement : fermee a chaque changement d'ecran (ne traine
+  // jamais). Boutons trophee visibles dans TOUS les modes (internet,
+  // entrainement, LAN) — le classement passe par le relais /api/ranking,
+  // independant du mode de connexion (restriction pokerth.net levee).
+  if (window.closeRankingModal) window.closeRankingModal();
+  if (window._pollOnScreen) window._pollOnScreen(id);
+  if (window.closeTableRanking) window.closeTableRanking();
+  // Messages prives : la fenetre se ferme des qu'on arrive au feutre. Parite
+  // QML (PrivateMessageDialog, onAtTableChanged: if (atTable) close()) : a une
+  // table en cours, les PM sont volontairement coupes -- risque d'entente
+  // entre joueurs -- et le serveur ne les delivre de toute facon pas.
+  if (id === 's-game' && window.closePmModal) { try { window.closePmModal(); } catch (e) {} }
+  try {
+    var _rkb = document.getElementById('ranking-btn-lobby');
+    if (_rkb) _rkb.style.display = (id === 's-lobby') ? '' : 'none';
+    // Trophee aussi dans le header de jeu (entre le son et la roue crantee).
+    var _rkg = document.getElementById('ranking-btn-game');
+    if (_rkg) _rkg.style.display = (id === 's-game') ? '' : 'none';
+    // Podium « classement de la table » (parite QML : lien du nom de table
+    // dans la GameStatusBar) — masque en mode entrainement (bots sans saison).
+    var _rkt = document.getElementById('tableranking-btn-game');
+    if (_rkt) _rkt.style.display = (id === 's-game' && !window._offlineMode) ? '' : 'none';
+    // Bouton Forum : partout comme le classement (parite QML 2.1.6 — icone
+    // topbar sur toutes les pages). Les boutons connect/create/lobby sont
+    // statiquement visibles ; celui de la table suit la regle du ranking
+    // (pas en mode hors ligne). Le badge se rafraichit au retour au lobby.
+    var _fng = document.getElementById('forum-btn-game');
+    if (_fng) _fng.style.display = (id === 's-game' && !window._offlineMode) ? '' : 'none';
+    if (id === 's-lobby' && window._forumLobbyShown) window._forumLobbyShown();
+    // Mise en page lobby v2 : re-sync a chaque entree (chat docke sous les
+    // tables en compact — parite QML ChatBox ; auto-reparation du reparent).
+    if (id === 's-lobby' && window._lobby3Sync) window._lobby3Sync();
+  } catch (e) {}
+  if (window._syncOverlayTop) window._syncOverlayTop();
+  // Keep the screen awake only while at the table.
+  if (id === 's-game') acquireWakeLock(); else releaseWakeLock();
+  // PWA shortcut intent (?go=play|create): fire ONCE when the lobby first
+  // appears (i.e. right after a successful connect). Cleared immediately so
+  // later returns to the lobby (e.g. leaving a game) don't re-trigger it.
+  if (id === 's-lobby' && window._pendingGo) {
+    var _go = window._pendingGo; window._pendingGo = null;
+    setTimeout(function () {
+      try {
+        if (_go === 'create') {
+          if (App && App.toggleCreateForm) App.toggleCreateForm();
+        } else if (App && App.autoJoinOrCreate) {
+          App.autoJoinOrCreate();
+        }
+      } catch (e) {}
+    }, 700);
+  }
+}
+
+// [Phase 2 / 9d] Wake lock (acquire/release + _wakeLock) déplacé dans
+// public/modules/ui/misc.mjs (toujours global via window.*).
+// [Phase 2 / 9d] _sidStore/_getSessionId déplacées dans public/modules/ui/misc.mjs.
+
+function _armRejoin() {
+  if (S._intentionalDisconnect) return;
+  var sgEl = document.getElementById('s-game');
+  if (S.gId && sgEl && sgEl.classList.contains('active')) {
+    S._pendingRejoin = S.gId;
+    // Spectateur : pas de siège côté serveur → à la reconnexion il faudra
+    // re-SPECTATER (JoinExistingGame spectateOnly) et non RejoinExistingGame,
+    // sinon le serveur retire la session (RemovedFromGame onRequest) → lobby.
+    S._pendingRejoinSpec = !!S._amSpectator;
+  }
+}
+
+function _maybeReconnectOnResume() {
+  if (S._intentionalDisconnect) return;
+  if (window._offlineMode) return;                        // entraînement : aucun réseau à réparer
+  if (!S._lastConnectParams) return;                      // jamais connecté cette session
+  if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+    // Socket encore vivant. Réarmer l'horloge du watchdog : en arrière-plan
+    // les timers sont gelés/throttlés → _lastRxTime est PÉRIMÉ au réveil, et
+    // sans ce reset le watchdog « présume mort » un socket sain dans les 5 s
+    // qui suivent le retour d'onglet → reconnexion forcée → éjection au lobby.
+    // Un socket réellement zombie sera quand même détecté : il restera muet
+    // pendant tout le seuil suivant (≥ 45 s) et le watchdog re-déclenchera.
+    S._lastRxTime = Date.now();
+    return;
+  }
+  // Tentative DÉJÀ en cours : au retour d'app, visibilitychange PUIS focus
+  // (et pageshow) se déclenchent à quelques ms d'écart. Le 2e appel trouvait
+  // un socket encore CONNECTING (≠ OPEN), le démontait (« WebSocket is closed
+  // before the connection is established » en console) et rouvrait une session
+  // CONCURRENTE → deux Init du même pseudo en course côté serveur → le rejoin
+  // retombait en RemovedFromGame (onRequest puis running) = éjection au lobby
+  // (bug observé en partie BBC sur pokerth.net). On laisse une tentative
+  // récente (< 15 s) aboutir ; au-delà elle est réputée plantée → on repart.
+  if (S.ws && S.ws.readyState === WebSocket.CONNECTING &&
+      Date.now() - (S._lastConnectTime || 0) < 15000) return;
+  var sg = document.getElementById('s-game');
+  var sl = document.getElementById('s-lobby');
+  var inSession = (sg && sg.classList.contains('active'))
+               || (sl && sl.classList.contains('active'));
+  if (!inSession) return;
+  try { console.log('[net] reconnecting on return to the page (socket not open)'); } catch (eL) {}
+  _armRejoin();
+  // Annuler tout backoff déjà programmé par un onclose.
+  clearTimeout(window._reconnectTimer);
+  clearInterval(window._reconnectCountdown);
+  S._reconnectAttempts = 0;
+  // Refermer proprement un éventuel socket zombie avant de rouvrir.
+  if (S.ws && S.ws.readyState !== WebSocket.CLOSED) {
+    try { S.ws.onclose = null; S.ws.onerror = null; S.ws.onmessage = null; S.ws.close(); } catch(e) {}
+    S.ws = null;
+  }
+  try { window._showBanner(t('reconnInProgress')); } catch(e) {}
+  // preserve:true → on garde l'état de la table ; le proxy rebranche le
+  // WebSocket sur la session PokerTH toujours vivante (même sid) → la partie
+  // continue sans nouvel Init (pas de collision de pseudo, pas de blocage IP).
+  try { App.connect({ preserve: true }); } catch(e) {}
+}
+
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) return;
+  var sg = document.getElementById('s-game');
+  if (sg && sg.classList.contains('active')) acquireWakeLock();
+  _maybeReconnectOnResume();
+});
+window.addEventListener('pageshow', _maybeReconnectOnResume);
+// 'focus' : certains navigateurs mobiles déclenchent 'focus' (et pas toujours
+// 'visibilitychange') quand on revient sur l'onglet après une autre appli.
+// Idempotent : _maybeReconnectOnResume ne fait rien si le socket est vivant.
+window.addEventListener('focus', _maybeReconnectOnResume);
+
+// ── Détection d'un socket MORT (bascule réseau, ex. wifi → 5G) ─────────
+// Sur un changement de réseau, l'ancien WebSocket peut rester readyState
+// === OPEN tout en étant un « zombie » (TCP mort). _maybeReconnectOnResume
+// ne suffit pas (il fait confiance à OPEN). Ici on FORCE : on démonte le
+// socket quel que soit son état, puis on relance une connexion propre
+// (même chemin que la reconnexion auto → même re-join de table).
+function _forceReconnect(why) {
+  if (S._intentionalDisconnect || !S._lastConnectParams) return;
+  // Entraînement (offline) : il n'y a AUCUN réseau — le FakeServer vit dans la
+  // page. « Reconnecter » ici détruit la partie en cours et rejoue Init/InitAck
+  // → retour lobby/page création. Or l'event 'online' (bascule wifi/VPN, portail
+  // captif…) et le watchdog RX peuvent se déclencher n'importe quand → c'était
+  // une cause d'éjection aléatoire en pleine partie. On ne touche à rien.
+  if (window._offlineMode) return;
+  // Même garde anti-« tempête de connexions » que _maybeReconnectOnResume :
+  // l'event 'online' peut tirer en rafale — ne pas démonter une tentative
+  // CONNECTING récente, la laisser aboutir.
+  if (S.ws && S.ws.readyState === WebSocket.CONNECTING &&
+      Date.now() - (S._lastConnectTime || 0) < 15000) return;
+  var sg = document.getElementById('s-game');
+  var sl = document.getElementById('s-lobby');
+  if (!((sg && sg.classList.contains('active')) || (sl && sl.classList.contains('active')))) return;
+  // 'online' passes its Event; the watchdog and _sendJoin pass a string.
+  try { console.log('[net] forced reconnect — ' + ((why && why.type === 'online') ? 'network back online' : (why || 'unknown'))); } catch (eL) {}
+  _armRejoin();
+  clearTimeout(window._reconnectTimer);
+  clearInterval(window._reconnectCountdown);
+  S._reconnectAttempts = 0;
+  if (S.ws) {
+    try { S.ws.onclose = null; S.ws.onerror = null; S.ws.onmessage = null; S.ws.onopen = null; S.ws.close(); } catch(e) {}
+    S.ws = null;
+  }
+  S._lastRxTime = Date.now(); // éviter que le watchdog ne re-déclenche aussitôt
+  try { window._showBanner(t('reconnInProgress')); } catch(e) {}
+  try { App.connect({ preserve: true }); } catch(e) {}
+}
+
+function setStatus(txt, cls='', key, opts) {
+  // Mémorise la clé i18n du message courant (null pour les messages
+  // transitoires : erreurs, « Initialisation… »), afin que _refreshConnectStatus
+  // puisse le retraduire à la volée lors d'un changement de langue.
+  S._statusKey = key || null;
+  const el = document.getElementById('cstatus');
+  if (!el) return;
+  el.textContent = txt;
+  el.className = 'status ' + cls;
+  // Keyed messages are the persistent notes (guest hint, LAN note); errors and
+  // progress carry no key. Exposing the key lets a stylesheet tell them apart
+  // — /live drops the notes and keeps everything that actually reports.
+  if (el.dataset) el.dataset.statusKey = key || '';
+  // #cstatus vit sous le bouton CONNECT, donc sur l'écran de connexion. Une
+  // fois au lobby ou à table, cet écran est masqué : tout message écrit ici
+  // devient invisible. Les REFUS DE JOIN passaient par là — le serveur
+  // répondait « partie pleine », « déjà commencée », « invitation requise »,
+  // et le joueur ne voyait rien du tout. Rapport forum : « je clique Rejoindre
+  // et il ne se passe rien ».
+  //
+  // Une erreur ne doit pas dépendre de l'écran où l'on se trouve : quand la
+  // cible est masquée, on la double d'un toast. Limité aux erreurs — les
+  // messages d'état ordinaires n'ont pas à s'imposer par-dessus l'écran.
+  //
+  // EXCEPTION `local:true` — certains messages ne parlent QUE de l'écran de
+  // connexion : « la connexion prend du temps, réessaie », « remplis les
+  // champs », « attends N s avant de réessayer ». Les doubler ailleurs, c'est
+  // demander à un joueur assis à une table d'agir sur un écran qu'il ne voit
+  // pas — et, pour une reconnexion automatique, sur un problème qu'il n'a même
+  // pas provoqué. À table, l'indicateur de lien est la pastille #g-conn-pill.
+  if (cls !== 'err') return;
+  if (opts && opts.local) return;
+  try {
+    if (el.offsetParent !== null) return;          // visible : rien à doubler
+    if (window.showToast) window.showToast(txt, { tone: 'error', icon: '\u26a0', duration: 5000 });
+  } catch (e) {}
+}
+
+// ── RÉSEAU ──
+function send(data) {
+  // Returns true if the frame was handed to the WebSocket, false if the
+  // socket is gone (tab slept, network dropped). Callers on critical paths
+  // (join/spectate) use this to warn the user instead of failing silently.
+  if (!S.ws || S.ws.readyState !== WebSocket.OPEN) return false;
+  if (window.directWS) {
+    // Direct WSS to pokerth.net: raw protobuf, no length prefix
+    S.ws.send(data);
+    return true;
+  }
+  // Proxy mode: 4-byte big-endian length prefix + data
+  const frame = new ArrayBuffer(4 + data.byteLength);
+  new DataView(frame).setUint32(0, data.byteLength, false);
+  new Uint8Array(frame).set(data, 4);
+  S.ws.send(frame);
+  return true;
+}
+
+export { _connectBtnEl, _beginConnecting, _endConnecting, show, _armRejoin,
+         _maybeReconnectOnResume, _forceReconnect, setStatus, send };
+
+for (const [k, v] of Object.entries({ _connectBtnEl, _beginConnecting,
+  _endConnecting, show, _armRejoin, _maybeReconnectOnResume, _forceReconnect,
+  setStatus, send })) window[k] = v;

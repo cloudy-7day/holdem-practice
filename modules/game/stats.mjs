@@ -1,0 +1,425 @@
+// ═══════════════════════════════════════════════════════════════════
+// Statistiques : session, lifetime (localStorage par pseudo), family
+// leaderboard (/stats du proxy), panneau + board — chantier ESM #9f-4.
+// Fonctions déplacées telles quelles depuis l'IIFE App. Adaptations :
+// t (i18n.mjs), _groupThousands (fmt.mjs), esc (misc.mjs) importés ;
+// _renderProfileStats via window (pont ajouté côté monolithe).
+// ═══════════════════════════════════════════════════════════════════
+import { S } from '../game/state.mjs';
+import { t } from '../i18n.mjs';
+import { _groupThousands } from '../ui/fmt.mjs';
+import { esc } from '../ui/misc.mjs';
+
+// ── Lifetime stats + family leaderboard ───────────────────────────────
+// Persisted per nickname in localStorage; pushed to the proxy (/stats) so
+// every device sees the same board. Recorded ONLY on private-server / LAN
+// connections (set true at connect) — pokerth.net modes are never tracked.
+// Training (vs bots) keeps its OWN persistent lifetime store, isolated from the
+// real private-server / LAN stats — they must never mix nor leak to the board.
+// LAN: one lifetime store per leaderboard — the historical 'pth_life' for the
+// local server / typed addresses, 'pth_life@<entry id>' for a listed LAN server
+// (each has its own board on the proxy, server/lan-boards.js). Pushing one
+// server's totals into another's board would mix them.
+function _lifeLanKey()    { return 'pth_life' + (S._lanBoard ? '@' + S._lanBoard : ''); }
+window._lifeLanKey = _lifeLanKey;
+function _boardQS()       { return S._lanBoard ? '?board=' + encodeURIComponent(S._lanBoard) : ''; }
+function _lifeKey()       { return S._statsOffline ? 'pth_life_offline' : _lifeLanKey(); }
+function _lifeAllFor(key) { try { return JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch(e) { return {}; } }
+function _lifeAll()       { return _lifeAllFor(_lifeKey()); }
+function _lifeSaveAll(o)  { try { localStorage.setItem(_lifeKey(), JSON.stringify(o)); } catch(e) {} }
+function _lifeBlank()     { return { handsPlayed:0, handsWon:0, net:0, bigWin:0, bigLoss:0, gamesPlayed:0, gamesWon:0, bestStreak:0, streak:0 }; }
+// key optionnel : lire un store explicite (pth_life / pth_life_offline) plutot
+// que celui du mode de connexion courant — utilise par la fenetre "Profil du
+// joueur" pour que Local/Entrainement et LAN restent consultables (et
+// reinitialisables) depuis n'importe quel autre mode (demande narmod 11/09).
+function _lifeGet(name, key) { var a = key ? _lifeAllFor(key) : _lifeAll(); return a[name] || _lifeBlank(); }
+function _pushStats() {
+  if (!S._boardEligible || !S.myName) return;   // training never touches the family board
+  if (S._lifePushTimer) clearTimeout(S._lifePushTimer);
+  S._lifePushTimer = setTimeout(function() {
+    var s = _lifeGet(S.myName);
+    var av = ''; try { av = localStorage.getItem('pth_avatar') || ''; } catch(e) {}
+    if (av === '__pth__' || av === '__img__') av = ''; // ne pas envoyer le sentinelle
+    fetch('/stats', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name:S.myName, avatar:av, board:S._lanBoard || undefined,
+        handsPlayed:s.handsPlayed, handsWon:s.handsWon, net:s.net, bigWin:s.bigWin,
+        bigLoss:s.bigLoss, gamesPlayed:s.gamesPlayed, gamesWon:s.gamesWon, bestStreak:s.bestStreak })
+    }).catch(function(){});
+  }, 1500);
+}
+function _lifeRecordHand(won, delta) {
+  if (!S._statsEligible || !S.myName) return;
+  var a = _lifeAll(); var s = a[S.myName] || _lifeBlank();
+  s.handsPlayed++;
+  if (won) { s.handsWon++; s.streak = (s.streak||0)+1; if (s.streak > s.bestStreak) s.bestStreak = s.streak; }
+  else { s.streak = 0; }
+  s.net += delta;
+  if (delta > s.bigWin)  s.bigWin  = delta;
+  if (delta < s.bigLoss) s.bigLoss = delta;
+  a[S.myName] = s; _lifeSaveAll(a); _pushStats();
+}
+function _lifeRecordGame(won) {
+  if (!S._statsEligible || !S.myName) return;
+  var a = _lifeAll(); var s = a[S.myName] || _lifeBlank();
+  s.gamesPlayed++; if (won) s.gamesWon++;
+  a[S.myName] = s; _lifeSaveAll(a); _pushStats();
+}
+// key/pushDelete explicites : reinitialiser UN store precis (pas forcement
+// celui du mode courant) et decider independamment si le signal de
+// suppression part au proxy (jamais pour l'entrainement, qui ne pousse
+// jamais rien ; toujours pour LAN/prive, meme reinitialise depuis un autre
+// mode — demande narmod 11/09).
+function _lifeResetKey(key, pushDelete) {
+  if (!S.myName) return;
+  var a = _lifeAllFor(key);
+  delete a[S.myName];
+  try { localStorage.setItem(key, JSON.stringify(a)); } catch(e) {}
+  if (pushDelete) {
+    try { fetch('/stats', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name:S.myName, _delete:true, board:S._lanBoard || undefined }) }).catch(function(){}); } catch(e) {}
+  }
+}
+// Repli ambiant (mode de connexion courant) : inchange, utilise par l'overlay
+// de stats en jeu (renderStats/_statsReset).
+function _lifeReset() { _lifeResetKey(_lifeKey(), S._boardEligible); }
+// Merge two lifetime records keeping the better of each (mirrors the proxy's
+// monotonic merge): counters never regress, net follows the more complete
+// record. Preserves the local current `streak` (not stored server-side).
+function _lifeMerge(loc, srv) {
+  var hp = Math.max(loc.handsPlayed||0, srv.handsPlayed||0);
+  var gp = Math.max(loc.gamesPlayed||0, srv.gamesPlayed||0);
+  var srvFresher = (srv.handsPlayed||0) > (loc.handsPlayed||0);
+  return {
+    handsPlayed: hp, gamesPlayed: gp,
+    handsWon: Math.min(Math.max(loc.handsWon||0, srv.handsWon||0), hp),
+    gamesWon: Math.min(Math.max(loc.gamesWon||0, srv.gamesWon||0), gp),
+    bestStreak: Math.max(loc.bestStreak||0, srv.bestStreak||0),
+    bigWin: Math.max(loc.bigWin||0, srv.bigWin||0),
+    bigLoss: Math.min(loc.bigLoss||0, srv.bigLoss||0),
+    net: srvFresher ? (srv.net||0) : (loc.net||0),
+    streak: loc.streak||0
+  };
+}
+// Reseed this device's lifetime totals from the shared board at connect, so a
+// fresh browser/device doesn't keep pushing a near-blank snapshot. The proxy
+// would reject the regression anyway, but reseeding also fixes the TOTAL tab
+// display on the new device. Runs once per connect when eligible.
+function _lifeSeedFromServer() {
+  if (!S._boardEligible || !S.myName) return;
+  // A LAN board looked up by address (connect() in pokerth.js) must be known
+  // first, or the seed would read the historical board.
+  Promise.resolve(S._lanBoardReady).then(function(){ return fetch('/stats' + _boardQS(), { cache:'no-store' }); })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(data){
+      if (!data || !data[S.myName]) return;
+      var a = _lifeAll();
+      a[S.myName] = _lifeMerge(a[S.myName] || _lifeBlank(), data[S.myName]);
+      _lifeSaveAll(a);
+      if (S._statsOpen) renderStats();
+    }).catch(function(){});
+}
+
+// ── Panneau statistiques ──
+function toggleStats() {
+  S._statsOpen = !S._statsOpen;
+  var el = document.getElementById('stats-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'stats-overlay';
+    document.body.appendChild(el);
+  }
+  el.style.display = S._statsOpen ? '' : 'none';
+  if (S._statsOpen) renderStats();
+}
+
+function _statsSetTab(tab) { S._statsTab = tab; renderStats(); }
+window._statsSetTab = _statsSetTab;
+
+function _statsRow(label, val, cls) {
+  return '<div class="stat-row"><span class="stat-label">'+label+'</span><span class="stat-val '+(cls||'')+'">'+val+'</span></div>';
+}
+
+function renderStats() {
+  var el = document.getElementById('stats-overlay');
+  if (!el) return;
+  // Onglets TOTAL (à vie) et CLASSEMENT (proxy) seulement dans les deux modes
+  // réseau (LAN + serveur privé) : sur pokerth.net direct il n'y a ni stats
+  // persistantes ni proxy de classement → seul SESSION a du sens.
+  var eligible = S._statsEligible;       // SESSION + TOTAL available
+  var board    = S._boardEligible;       // CLASSEMENT (proxy) available — private/LAN only
+  if (!eligible && S._statsTab !== 'session') S._statsTab = 'session';
+  if (!board && S._statsTab === 'board') S._statsTab = 'session';
+  var titles = { session: t('statSession'), life: t('statTabLife'), board: t('statTabBoard') };
+  function tb(id, label) {
+    return '<button class="stats-tab'+(S._statsTab===id?' active':'')+'" onclick="window._statsSetTab(\''+id+'\')">'+label+'</button>';
+  }
+  // pokerth.net direct (not eligible) → no tab bar (session only). Training shows
+  // SESSION + TOTAL but no CLASSEMENT. Private/LAN shows all three.
+  var tabs = eligible
+    ? '<div class="stats-tabs">'+tb('session',t('statTabSession'))+tb('life',t('statTabLife'))
+      + (board ? tb('board',t('statTabBoard')) : '') + '</div>'
+    : '';
+  var body;
+  if (S._statsTab === 'life')       body = _statsBodyLife();
+  else if (S._statsTab === 'board') body = '<div id="stats-board-body" class="stats-body"><div class="stat-empty">…</div></div>';
+  else                            body = _statsBodySession();
+  el.innerHTML = '<div class="stats-header"><span>📊 '+titles[S._statsTab]+'</span>'
+    + '<button onclick="toggleStats()" style="background:none;border:none;color:var(--text);cursor:pointer;font-size:0.9rem">✕</button>'
+    + '</div>' + tabs + body;
+  if (S._statsTab === 'board') renderBoard();
+}
+
+function _statsBodySession() {
+  var s = S._stats;
+  var gain = s.totalGain;
+  var gainCls = gain > 0 ? 'pos' : gain < 0 ? 'neg' : '';
+  var wr = s.handsPlayed > 0 ? Math.round(s.handsWon/s.handsPlayed*100) : 0;
+  var hist = s.history.slice().reverse().slice(0,5);
+  var histHtml = hist.length ? hist.map(function(h2) {
+    var dcls = h2.delta > 0 ? 'pos' : h2.delta < 0 ? 'neg' : '';
+    return '<div class="hand-hist-item">'
+      + '<div style="display:flex;justify-content:space-between">'
+      + '<span style="color:var(--gold-dim);font-size:0.55rem">Main #'+h2.num+'</span>'
+      + '<span class="hand-hist-result '+dcls+'">'+(h2.delta>0?'+':'')+'$'+_groupThousands(h2.delta)+'</span>'
+      + '</div>'
+      + '<div class="hand-hist-cards">'
+      + (h2.cards ? h2.cards.map(function(c){ return '<span style="background:#fff;color:'+(c.red?'#c0392b':'#111')+';border-radius:2px;padding:1px 3px;font-size:0.6rem;font-weight:700">'+c.r+c.s+'</span>'; }).join('') : '')
+      + '</div>'
+      + '</div>';
+  }).join('') : '<div style="color:var(--text);font-size:0.62rem">' + t('noHandsPlayed') + '</div>';
+  return '<div class="stats-body">'
+    + _statsRow(t('statHandsPlayed'), s.handsPlayed)
+    + _statsRow(t('statWins'), s.handsWon, 'pos')
+    + _statsRow(t('statWinRate'), wr+'%')
+    + '<hr class="stat-divider">'
+    + _statsRow(t('statNet'), (gain>0?'+':'')+'$' + _groupThousands(gain), gainCls)
+    + _statsRow(t('statBestWin'), '+'+'$' + _groupThousands(s.bigWin), 'pos')
+    + _statsRow(t('statWorstLoss'), '$' + _groupThousands(s.bigLoss), 'neg')
+    + '<hr class="stat-divider">'
+    + '<div style="font-size:0.58rem;color:var(--gold-dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px">'+t('statRecentHands')+'</div>'
+    + histHtml
+    + '</div>';
+}
+
+// explicitKey (optionnel) : forcer la lecture de UN store precis plutot que
+// celui du mode courant — utilise par les panes Local/Entrainement
+// ('pth_life_offline') et LAN ('pth_life') de la fenetre "Profil du joueur",
+// consultables depuis n'importe quel mode (demande narmod 11/09). Sans
+// argument (overlay de stats en jeu, renderStats) : comportement ambiant
+// inchange.
+function _statsBodyLife(explicitKey) {
+  var key = explicitKey || _lifeKey();
+  var s = _lifeGet(S.myName, key);
+  var gain = s.net;
+  var gainCls = gain > 0 ? 'pos' : gain < 0 ? 'neg' : '';
+  var wr = s.handsPlayed > 0 ? Math.round(s.handsWon/s.handsPlayed*100) : 0;
+  var isOffline = (key === 'pth_life_offline');
+  var note = isOffline ? '<div class="stat-note">'+t('statLifeTraining')+'</div>' : '';
+  var resetHandler = !explicitKey ? 'window._statsReset()' : (isOffline ? 'window._statsResetLocal()' : 'window._statsResetLan()');
+  return '<div class="stats-body">'
+    + note
+    + _statsRow(t('statGamesPlayed'), s.gamesPlayed)
+    + _statsRow(t('statGamesWon'), s.gamesWon, 'pos')
+    + _statsRow(t('statStreak'), s.bestStreak, 'pos')
+    + '<hr class="stat-divider">'
+    + _statsRow(t('statHandsPlayed'), s.handsPlayed)
+    + _statsRow(t('statWins'), s.handsWon, 'pos')
+    + _statsRow(t('statWinRate'), wr+'%')
+    + '<hr class="stat-divider">'
+    + _statsRow(t('statNet'), (gain>0?'+':'')+'$' + _groupThousands(gain), gainCls)
+    + _statsRow(t('statBestWin'), '+'+'$' + _groupThousands(s.bigWin), 'pos')
+    + _statsRow(t('statWorstLoss'), '$' + _groupThousands(s.bigLoss), 'neg')
+    + '<hr class="stat-divider">'
+    + '<button class="stats-reset" onclick="'+resetHandler+'">'+t('statReset')+'</button>'
+    + '</div>';
+}
+// Reset ambiant (overlay de stats en jeu) : inchange.
+function _statsReset() {
+  if (!confirm(t('statResetConfirm'))) return;
+  _lifeReset();
+  renderStats();
+  // Repeindre aussi la fenetre "Profil du joueur" si ouverte : le pane dont
+  // le store correspond au mode ambiant courant.
+  if (S._statsOffline) {
+    if (typeof window._pimRenderSessionStats === 'function' && S._pimStatsBox) {
+      try { window._pimRenderSessionStats(S._pimStatsBox); } catch (e) {}
+    }
+  } else {
+    if (typeof window._pimRenderLanStats === 'function' && S._pimLanStatsBox) {
+      try { window._pimRenderLanStats(S._pimLanStatsBox); } catch (e) {}
+    }
+  }
+}
+window._statsReset = _statsReset;
+
+// Reset explicite du pane Local/Entrainement (fenetre Profil du joueur) :
+// store 'pth_life_offline' uniquement, jamais pousse au proxy (l'entrainement
+// n'a jamais touche le classement familial) — disponible depuis n'importe
+// quel mode (demande narmod 11/09).
+function _statsResetLocal() {
+  if (!confirm(t('statResetConfirm'))) return;
+  _lifeResetKey('pth_life_offline', false);
+  if (typeof window._pimRenderSessionStats === 'function' && S._pimStatsBox) {
+    try { window._pimRenderSessionStats(S._pimStatsBox); } catch (e) {}
+  }
+  if (S._statsOpen && S._statsOffline) renderStats();
+}
+window._statsResetLocal = _statsResetLocal;
+
+// Reset explicite du pane LAN (fenetre Profil du joueur) : store 'pth_life',
+// TOUJOURS pousse au proxy (le classement familial doit refleter la
+// suppression), disponible depuis n'importe quel mode (demande narmod 11/09).
+function _statsResetLan() {
+  if (!confirm(t('statResetConfirm'))) return;
+  _lifeResetKey(_lifeLanKey(), true);
+  if (typeof window._pimRenderLanStats === 'function' && S._pimLanStatsBox) {
+    try { window._pimRenderLanStats(S._pimLanStatsBox); } catch (e) {}
+  }
+  if (S._statsOpen && !S._statsOffline) renderStats();
+}
+window._statsResetLan = _statsResetLan;
+
+// Ranking criterion (persisted). net | per100 | winrate | games | streak.
+try { S._boardSort = localStorage.getItem('pth_board_sort') || 'net'; } catch(e) {}
+function _boardPer100(p) { return (p.handsPlayed>0) ? (p.net||0)*100/p.handsPlayed : 0; }
+function _boardWinRate(p){ return (p.handsPlayed>0) ? (p.handsWon||0)/p.handsPlayed : 0; }
+function _boardCmp(key) {
+  if (key === 'per100')  return function(a,b){ return _boardPer100(b)-_boardPer100(a) || (b.net||0)-(a.net||0); };
+  if (key === 'winrate') return function(a,b){ return _boardWinRate(b)-_boardWinRate(a) || (b.handsPlayed||0)-(a.handsPlayed||0); };
+  if (key === 'games')   return function(a,b){ return (b.gamesWon||0)-(a.gamesWon||0) || (b.net||0)-(a.net||0); };
+  if (key === 'streak')  return function(a,b){ return (b.bestStreak||0)-(a.bestStreak||0) || (b.net||0)-(a.net||0); };
+  return function(a,b){ return (b.net||0)-(a.net||0); };
+}
+function _boardSetSort(k) {
+  S._boardSort = k;
+  try { localStorage.setItem('pth_board_sort', k); } catch(e) {}
+  if (document.getElementById('stats-board-body')) renderBoard('stats-board-body');
+  // Onglet LAN de la fenetre des classements (pokerth-client.html).
+  var _rkl = document.getElementById('rk-lan-wrap');
+  if (_rkl && _rkl.style.display !== 'none') renderBoard('rk-lan-wrap');
+  // Onglet LAN de la fenetre "Classement de la table" — meme classement
+  // familial, filtre aux pseudos de la table (window._trkLanFilter, pose par
+  // trSelectLan dans pokerth-client.html).
+  var _trl = document.getElementById('trk-lan-wrap');
+  if (_trl && _trl.style.display !== 'none') renderBoard('trk-lan-wrap', window._trkLanFilter);
+  // Onglet LAN de la fenetre "Profil du joueur" (openPlayerProfile) — 3e
+  // sous-onglet Classement du pane LAN (S._pimLanTab==='board', cf.
+  // player-popup.mjs _renderLanProfileStats). Classement familial complet,
+  // non filtre.
+  var _ppl = document.getElementById('pp-lan-board-body');
+  if (_ppl) renderBoard('pp-lan-board-body');
+}
+window._boardSetSort = _boardSetSort;
+
+// Fold nom (case + diacritiques) pour le filtrage par pseudos — meme esprit
+// que trFold/rkFold dans pokerth-client.html (comparaisons tolerantes).
+function _boardFold(s) { return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+
+// filterNames (optionnel) : tableau de pseudos — restreint le classement
+// familial a ces joueurs (utilise par l'onglet LAN de "Classement de la
+// table" : memes donnees /stats, vue limitee aux joueurs assis a la table
+// courante).
+// Which LAN server this board belongs to, and when it resets (a listed
+// server's own board only; nothing for the historical board).
+function _boardCaption() {
+  if (!S._lanBoard || !window.LanDirUI || !window.LanDirUI.boardInfo) return '';
+  var b = window.LanDirUI.boardInfo(S._lanBoard);
+  if (!b) return '';
+  var per = { off: 'lanResetOff', daily: 'lanResetDaily', weekly: 'lanResetWeekly', monthly: 'lanResetMonthly', yearly: 'lanResetYearly' }[b.resetPeriod] || '';
+  return '<div class="board-caption"><b>' + esc(b.name) + '</b>' + (per ? ' · ' + esc(t('lanPropReset')) + ' — ' + esc(t(per)) : '') + '</div>';
+}
+function renderBoard(targetId, filterNames) {
+  var boxId = targetId || 'stats-board-body';
+  fetch('/stats' + _boardQS(), { cache:'no-store' })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .then(function(data){
+      var box = document.getElementById(boxId);
+      if (!box) return;
+      var arr = Object.keys(data || {}).map(function(name){ var v = data[name] || {}; v.name = name; return v; });
+      if (filterNames && filterNames.length) {
+        var want = {};
+        for (var f=0; f<filterNames.length; f++) want[_boardFold(filterNames[f])] = true;
+        arr = arr.filter(function(p){ return want[_boardFold(p.name)]; });
+      }
+      arr.sort(_boardCmp(S._boardSort));
+      // Sort selector (↕). Labels reuse existing stat keys; only net/100 is new.
+      var opt = function(id, lbl){ return '<option value="'+id+'"'+(S._boardSort===id?' selected':'')+'>'+esc(lbl)+'</option>'; };
+      var sortUI = '<div class="board-sort"><span>↕</span><select onchange="window._boardSetSort(this.value)">'
+        + opt('net', t('statNet'))
+        + opt('per100', t('boardPer100'))
+        + opt('winrate', t('statWinRate'))
+        + opt('games', t('statGamesWon'))
+        + opt('streak', t('statStreak'))
+        + '</select></div>';
+      if (!arr.length) { box.innerHTML = _boardCaption() + sortUI + '<div class="stat-empty">'+t('boardEmpty')+'</div>'; return; }
+      // My rank under the current criterion — shown even if far down the list.
+      var myIdx = -1;
+      for (var k=0;k<arr.length;k++){ if (arr[k].name===S.myName){ myIdx=k; break; } }
+      var rankLine = (myIdx>=0)
+        ? '<div class="board-myrank">'+t('boardYourRank', { n: myIdx+1, m: arr.length })+'</div>' : '';
+      var rows = arr.map(function(p, i){
+        var net = p.net||0, ncls = net>0?'pos':net<0?'neg':'';
+        var mine = (p.name === S.myName) ? ' me' : '';
+        var av = p.avatar ? p.avatar : (p.name ? p.name.charAt(0).toUpperCase() : '?');
+        var medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':('#'+(i+1));
+        var hp = p.handsPlayed||0;
+        var p100 = hp>0 ? Math.round(net*100/hp) : 0;
+        var wrp  = hp>0 ? Math.round((p.handsWon||0)/hp*100) : 0;
+        // Secondary line adapts to the active criterion so the ranked value is visible.
+        var sub;
+        if (S._boardSort==='per100')       sub = (p100>0?'+':'')+'$'+_groupThousands(p100)+'/100 · '+hp;
+        else if (S._boardSort==='winrate') sub = wrp+'% · '+hp;
+        else if (S._boardSort==='streak')  sub = '🔥 '+(p.bestStreak||0);
+        else                             sub = '🏆'+(p.gamesWon||0)+' · '+(p.handsWon||0);
+        return '<div class="board-row'+mine+'">'
+          + '<span class="board-rank">'+medal+'</span>'
+          + '<span class="board-av">'+esc(av)+'</span>'
+          + '<span class="board-name">'+esc(p.name)+'</span>'
+          + '<span class="board-net '+ncls+'">'+(net>0?'+':'')+'$'+_groupThousands(net)+'</span>'
+          + '<span class="board-sub">'+sub+'</span>'
+          + '</div>';
+      }).join('');
+      box.innerHTML = _boardCaption() + sortUI + rankLine + '<div class="board-list">'+rows+'</div>';
+    })
+    .catch(function(){
+      var box = document.getElementById(boxId);
+      if (box) box.innerHTML = '<div class="stat-empty">'+t('boardEmpty')+'</div>';
+    });
+}
+
+// Initialiser les stats au début d'une partie
+function initStats(startMoney) {
+  if (S._statsInited) return;
+  S._stats.startMoney = startMoney;
+  S._stats.peakMoney  = startMoney;
+  S._statsInited = true;
+}
+
+// Enregistrer le résultat d'une main
+function recordHand(won, delta, myCardsPair) {
+  S._stats.handsPlayed++;
+  if (won) S._stats.handsWon++;
+  S._stats.totalGain += delta;
+  if (delta > S._stats.bigWin) S._stats.bigWin = delta;
+  if (delta < S._stats.bigLoss) S._stats.bigLoss = delta;
+  S._stats.history.push({ num: S.handNum, delta: delta, won: won,
+    cards: myCardsPair });
+  if (S._stats.history.length > 20) S._stats.history.shift();
+  _lifeRecordHand(won, delta);
+  if (S._statsOpen) renderStats();
+}
+
+export { _lifeKey, _lifeAll, _lifeSaveAll, _lifeBlank, _lifeGet, _pushStats,
+         _lifeRecordHand, _lifeRecordGame, _lifeReset, _lifeResetKey, _lifeMerge,
+         _lifeSeedFromServer, toggleStats, _statsSetTab, _statsRow, renderStats,
+         _statsBodySession, _statsBodyLife, _statsReset, _statsResetLocal,
+         _statsResetLan, _boardPer100,
+         _boardWinRate, _boardCmp, _boardSetSort, renderBoard, initStats,
+         recordHand };
+
+for (const [k, v] of Object.entries({ _lifeKey, _lifeAll, _lifeSaveAll, _lifeBlank,
+  _lifeGet, _pushStats, _lifeRecordHand, _lifeRecordGame, _lifeReset, _lifeResetKey, _lifeMerge,
+  _lifeSeedFromServer, toggleStats, _statsSetTab, _statsRow, renderStats,
+  _statsBodySession, _statsBodyLife, _statsReset, _statsResetLocal, _statsResetLan,
+  _boardPer100, _boardWinRate,
+  _boardCmp, _boardSetSort, renderBoard, initStats, recordHand })) window[k] = v;

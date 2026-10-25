@@ -1,0 +1,482 @@
+// ── help/content/is.mjs — Icelandic (Íslenska) help corpus ─────────────────────────
+//
+// Same structure as en.mjs (reference): chapters[] → { id, icon, title,
+// sections[] }, section = { id, t, b[], list[], keys[[kbd,label]], note }.
+// Poker action terms (Fold, Check, Call, Bet, Raise, All-In) and the hand
+// names of the rules chapter stay in English, as in the other help corpora.
+export const help = {
+  chapters: [
+    {
+      id: "start", icon: "🚀", title: "Fyrstu skrefin",
+      sections: [
+        { id: "modes",
+          t: "Þrjár leiðir til að spila",
+          b: [
+            "Á innskráningarskjánum velurðu hvernig þú vilt spila."],
+          list: [
+            "Internet — spilaðu á netinu á opinbera pokerth.net þjóninum. Skráðu þig inn sem gestur til að spila venjulega leiki strax, eða með ókeypis pokerth.net aðgangi (skráðu þig á pokerth.net) fyrir stigaleiki, stigatöflurnar og spjallið.",
+            "Staðbundið / æfing — spilaðu ótengt gegn bottum. Ekkert þarf að setja upp, virkar án tengingar og opnar verðlaun eftir því sem þér miðar áfram.",
+            "LAN / sérþjónn — tengstu PokerTH þjóni á staðarnetinu þínu, á þinni eigin vél eða á internetinu. Enginn aðgangur: veldu bara notandanafn. Þjónalistinn sýnir þjónana sem þessi vefur skráir, til dæmis almennan prufuþjón, og „Leggja til þjóninn minn“ biður um að þínum verði bætt við."] },
+        { id: "acehelp", t: "Hjálp ássins",
+          b: ["Hjálp ássins gerir ásinn, lukkudýr vefbiðlarans, að leiðsögumanni: um leið og þú samþykkir sest lítill ás neðst til hægri og útskýrir það sem skiptir máli þar sem þú ert — í alvöru forritinu, við alvöru borðin. Hún er boðin einu sinni við fyrstu ræsingu. Hnappurinn „Hjálp ássins“ á innskráningarskjánum og í valmyndum hausins opnar valmynd hans hvenær sem er, jafnvel þegar slökkt er á ábendingunum: „Meiri hjálp“ (öll hjálpin, með leit), „Hvað er þetta?“ og „Kveikja á ábendingum“ eða „Slökkva“ (einnig í Ítarlegir valkostir → Aðstoð).",
+              "Í anddyri pokerth.net bendir hann á stigaleikinn sem er næst því að hefjast og býður þér að vera með — eða að búa einn til þegar enginn er opinn (allir leikmenn með aðgang geta það; gestir spila venjulega leiki). Við stigaleikjaborð sem bíður eftir leikmönnum útskýrir hann stigatöfluna á meðan borðið fyllist, og á eftir segir hann þér sætið þitt og stigin þín. Hver ábending birtist einu sinni: „Seinna“ leggur hana saman í merki á ásnum og ef ýtt er á ásinn birtist hún aftur. Hann talar aldrei á meðan hönd er spiluð að fyrra bragði — þú getur samt spurt hann við borðið. Ýttu á hann til að opna valmyndina hans: „Meiri hjálp“ (öll hjálpin, með leit), „Hvað er þetta?“ (ýttu svo á hvað sem er á skjánum og hann segir þér hvað það gerir; guli spurningarmerkið „?“ í horni talblaðranna hans gerir það sama), „Ábending skjásins“, „Slökkva“ eða „Sýna allar ábendingar aftur“."],
+          note: "Öðru hverju, þegar enginn snertir skjáinn á innskráningarskjánum eða í anddyrinu, leikur ásinn stutt, fyndið atriði. Þegar Hjálp ássins er kveikt leggur hann af stað frá sínum stað og snýr aftur á hann, og aldrei á meðan ábending bíður. Með minni áhrifum eða minni hreyfingu eru engin atriði og einföld talbóla kemur í stað ássins. Það sem þú hefur þegar séð fylgir pokerth.net aðganginum þínum. (⚙ Ítarlegir valkostir → Aðstoð → Uppátæki ássins: atriði, dansar og viðbrögð)" },
+        { id: "lan",
+          t: "LAN / sérþjónn",
+          b: [
+            "Þriðji hamurinn tengist hvaða PokerTH þjóni sem þú eða vinur rekur — á heimaneti, einka-VPS, hvar sem er. Sláðu inn vistfang og gátt þjónsins, hakaðu við TLS ef þjónninn notar dulkóðuðu gáttina og skráðu þig inn með gælunafni (gestaaðgangur virkar ef þjónninn leyfir). Eftir það virkar allt við borðið nákvæmlega eins og á opinbera þjóninum.", "Þegar þessi síða birtir LAN-þjóna skaltu velja einn í listanum Þjónn í stað þess að slá inn vistfang: grænn punktur sýnir að hann er tengdur, ásamt fjölda leikmanna á honum. Til að fá þinn eigin þjón á listann skaltu velja Leggja til þjóninn minn neðst á listanum, slá inn vistfang hans og gátt, prófa tenginguna og senda síðan beiðnina; þegar stjórnendur samþykkja hann birtist hann á listanum fyrir alla. Þjónninn verður að vera aðgengilegur af internetinu. Síðasti hluti eyðublaðsins er aðeins fyrir stjórnendur — gælunafnið þitt, athugasemd og tengiliður ef þú vilt, eytt þegar þeir hafa ákveðið sig; viðburðaþjónn getur haft síðasta dag og eftir hann hverfur hann sjálfkrafa af listanum."] },
+        { id: "famboard",
+          t: "Fjölskyldustigatafla",
+          b: [
+            "Aðeins á einkaþjónum og í LAN-leikjum heldur biðlarinn ævitölfræði fyrir hvert gælunafn — spilaðar og unnar hendur og leiki, stærsta vinning, bestu sigurrunu — og deilir henni í gegnum þjóninn, þannig að öll tæki við borðið sjá sömu stigatöflu. Leikir á pokerth.net eru aldrei skráðir á þennan hátt og tölfræði æfingahams er geymd alveg sér.",
+            "Í þessum leikjum opnar bikarhnappurinn stigatöflugluggann á LAN-flipanum: allir leikmenn, hægt að raða eftir nokkrum viðmiðum.", "Hver þjónn á listanum LAN-þjónn hefur sína eigin stigatöflu, sem er endurstillt með þeirri tíðni sem valin var þegar þjónninn var lagður til (aðeins stjórnendur geta breytt henni). Staðbundni þjónninn og handslegin vistföng deila aðalstigatöflu síðunnar."] },
+        { id: "language",
+          t: "Tungumál",
+          b: [
+            "Viðmótið er til á 83 tungumáli. Skiptu um hvenær sem er í ítarlegum valkostum (tannhjólsvalmyndin), undir Notendaviðmót. Aðgerðaorð pókersins (Fold, Check, Call, Bet, Raise, All-In) haldast á ensku samkvæmt hefð, alveg eins og í skjáborðsbiðlaranum."] },
+        { id: "pwa",
+          t: "Setja upp sem forrit",
+          b: [
+            "Þessi biðlari er Progressive Web App: þú getur sett hann upp úr valmynd vafrans (eða með uppsetningarhnappinum í hausnum) og fengið forrit á öllum skjánum með eigin tákni. Eftir uppsetningu ræsist það samstundis og æfingahamurinn virkar alveg ótengt."],
+          list: ["Android (Chrome, Edge, Samsung Internet, Firefox): ýttu á uppsetningarhnappinn í hausnum eða opnaðu valmynd vafrans (⋮ eða ≡) og veldu “Setja upp forrit” eða “Bæta við heimaskjá” og staðfestu.",
+            "iPhone / iPad: ýttu á deilihnappinn (ferningur með ör upp; í nýlegu iOS getur hann verið í ⋯ valmyndinni), veldu “Bæta við heimaskjá” og síðan “Bæta við”. Safari getur þetta; nýlegar útgáfur iOS leyfa það líka úr Chrome og Edge.",
+            "Tölva: í Chrome eða Edge, smelltu á uppsetningarhnappinn í hausnum eða uppsetningartáknið hægra megin í veffangastikunni (eða valmynd ⋮ / ⋯ → “Setja upp”); í Safari á Mac: Skrá → “Bæta við Dock”."],
+          note: "Hjálp ássins sýnir skrefin fyrir tækið þitt: ýttu á ásinn → “Setja upp forritið”. Uppsetningarhnappurinn og þessi valmyndarlína hverfa þegar þú notar uppsetta forritið; opnaðu það héðan í frá með tákninu." },
+        { id: "platforms",
+          t: "Stýrikerfi og vafrar",
+          b: [
+            "Biðlarinn keyrir í hvaða nútímavafra sem er, á hvaða kerfi sem er — Windows, macOS, Linux, Android, iOS. Nokkrir eiginleikar reiða sig á nýleg vafra-API; þegar API vantar felur eiginleikinn sig eða útskýrir ástæðuna í stað þess að bila. Helstu munurinn sem vert er að vita af:"],
+          list: [
+            "Chrome / Edge (tölva): allt virkar, líka að skrifa .pdb skrána í möppu.",
+            "Firefox: allt nema að skrifa .pdb skrána í möppu (API ekki enn í boði).",
+            "Safari / iOS: uppsetning í gegnum Deila → Bæta við heimaskjá; enginn titringur; allur skjárinn takmarkaður á iPhone; hljóð byrjar eftir fyrstu snertingu þína.",
+            "Android: fullur stuðningur í Chromium-vöfrum, þar á meðal titringur og hegðun Til baka-hnappsins."] },
+        { id: "avatar",
+          t: "Gælunafn og avatar",
+          b: [
+            "Veldu gælunafn og avatar á innskráningarskjánum áður en þú tengist. Á pokerth.net er gælunafnið þitt heiti aðgangsins; avatörum er deilt með öðrum leikmönnum í gegnum avatarþjóninn.",
+            "Avatarinn er sendur þegar þú tengist og allir leikmenn sjá sama avatar. Ef þú breytir honum meðan þú ert tengd(ur) tekur nýi avatarinn gildi við næstu tengingu. Upphafsstafurinn (Aa) er ekki sendur: aðrir leikmenn sjá sjálfgefna avatarinn."] },
+      ]
+    },
+    {
+      id: "rules", icon: "🃏", title: "Pókerreglur",
+      sections: [
+        { id: "basics",
+          t: "Texas Hold’em í hnotskurn",
+          b: [
+            "PokerTH spilar No-Limit Texas Hold’em. Hver leikmaður fær tvö einkaspil (holuspil). Síðan eru fimm sameiginleg spil lögð upp í loft á mitt borðið. Besta fimm spila höndin, mynduð úr hvaða samsetningu sem er af spilunum þínum tveimur og sameiginlegu spilunum fimm, vinnur pottinn."] },
+        { id: "blinds",
+          t: "Blindir og gjafarahnappurinn",
+          b: [
+            "Fyrir hverja hönd hefja tvö skylduveðmál pottinn: litli blindur og stóri blindur, sem leikmennirnir tveir vinstra megin við gjafarahnappinn leggja út. Hnappurinn færist um eitt sæti réttsælis eftir hverja hönd, svo allir borga blindana til skiptis. Blindarnir hækka með reglulegu millibili eftir því sem líður á leikinn.",
+            "Á borðinu eru hnappurinn og blindarnir merktir með skífum: D (gjafari), SB (litli blindur) og BB (stóri blindur)."] },
+        { id: "streets",
+          t: "Veðloturnar fjórar",
+          list: [
+            "Pre-flop — eftir að holuspilin hafa verið gefin hefst fyrsta veðlotan vinstra megin við stóra blindinn.",
+            "Flop — þrjú sameiginleg spil eru sýnd og svo kemur veðlota.",
+            "Turn — fjórða sameiginlega spilið og svo önnur veðlota.",
+            "River — fimmta og síðasta sameiginlega spilið og svo lokaveðlotan."],
+          b: [
+            "Veðlotu lýkur þegar allir leikmenn sem enn eru í höndinni hafa lagt jafnmikið í pottinn (eða eru all-in)."] },
+        { id: "actions",
+          t: "Það sem þú getur gert þegar þú átt leik",
+          list: [
+            "Fold — gefa höndina eftir. Spilin þín eru lögð til hliðar og þú keppir ekki lengur um pottinn.",
+            "Check — láta leikinn ganga áfram án þess að veðja. Aðeins hægt þegar ekkert er til að jafna.",
+            "Call — jafna núverandi veðmál.",
+            "Bet — opna veðmálin þegar enginn hefur veðjað í þessari lotu.",
+            "Raise — hækka veðmálið sem fyrir er. Lágmarks-Raise jafngildir fyrra veðmáli eða Raise.",
+            "All-In — leggja allan staflann þinn undir. Þú ert áfram í höndinni upp að þeirri upphæð sem þú dekkar."] },
+        { id: "showdown",
+          t: "Uppgjör og skipting potta",
+          b: [
+            "Ef fleiri en einn leikmaður er eftir að lokinni veðlotunni á river eru hendur sýndar og besta höndin vinnur — vinningssamsetningin er sýnd fyrir neðan sameiginlegu spilin. Þegar leikmaður er all-in fyrir minna en full veðmál myndast hliðarpottar: hver leikmaður getur aðeins unnið þann hluta pottsins sem hann lagði í. Jafnar hendur skipta pottinum.",
+            "Ekki þurfa allir að sýna: byrjað er á þeim sem síðast sagði Bet eða Raise, og hönd er aðeins sýnd ef hún slær það sem þegar hefur verið sýnt. Þeir sem eiga rétt á að halda spilunum leyndum geta gert það og fá Sýna-hnapp ef þeir vilja samt sýna þau."] },
+        { id: "hands",
+          t: "Röðun handa",
+          b: [
+            "Frá veikustu til sterkustu:"],
+          list: [
+            "1. High Card — engin samsetning; hæsta spilið ræður.",
+            "2. Pair — tvö spil með sama gildi.",
+            "3. Two Pair — tvö ólík pör.",
+            "4. Three of a Kind — þrjú spil með sama gildi.",
+            "5. Straight — fimm spil í röð (ásinn getur talið sem hár eða lágur).",
+            "6. Flush — fimm spil í sömu sort.",
+            "7. Full House — þrjú spil með sama gildi og par.",
+            "8. Four of a Kind — fjögur spil með sama gildi.",
+            "9. Straight Flush — Straight í einni og sömu sort.",
+            "10. Royal Flush — tía upp í ás, öll í sömu sort. Besta mögulega höndin."] },
+      ]
+    },
+    {
+      id: "game", icon: "🎮", title: "Leikskjárinn",
+      sections: [
+        { id: "actionbar",
+          t: "Aðgerðastikan",
+          b: [
+            "Þegar þú átt leik lýsist aðgerðastikan neðst upp með allt að fjórum hnöppum: Fold (rauður), Check / Call (blár), Bet / Raise (grænn — auðkennd aðalaðgerð) og All-In (dökkrauður). Check / Call hnappurinn sýnir nákvæma upphæð sem þarf til að jafna; Bet / Raise sýnir upphæðina sem þú ert að fara að leggja undir. Eftir river getur All-In hnappurinn breyst í Sýna-hnapp til að sýna spilin þín."] },
+        { id: "betctl",
+          t: "Að velja veðmálið",
+          b: [
+            "Stilltu Raise-upphæðina með talnareitnum, sleðanum eða hraðhnöppunum 1/3 · 1/2 · pottur (hlutar af núverandi potti). Upphæðir eru námundaðar sjálfkrafa og haldið á milli leyfilegs lágmarks- og hámarks-Raise. Ef þú hugsar frekar í stórum blindum sýnir valkostur allar upphæðir í BB í stað spilapeninga."] },
+        { id: "preselect",
+          t: "Að velja aðgerð fyrirfram",
+          b: [
+            "Þú getur virkjað aðgerð áður en kemur að þér: snertu hnapp og hann fær gylltan ramma og lítinn gylltan punkt. Þegar þú átt leik er aðgerðin spiluð samstundis. Fold sem valið var fyrirfram verður sjálfkrafa Check ef Check er ókeypis — þú segir aldrei Fold að óþörfu. Forval endurstillist við hverja nýja hönd, þegar skipt er um lotu og í uppgjöri, og fellur niður ef aðstæður breytast (til dæmis ef upphæðin sem þarf að jafna breytist)."] },
+        { id: "automodes",
+          t: "Sjálfvirkir hamir",
+          b: [
+            "Fellilistinn við hlið aðgerðahnappanna býður upp á þrjá spilunarhami: Handvirkt, Sjálfv. Check/Call og Sjálfv. Check/Fold. Sjálfvirku hamirnir spila fyrir þig þar til þú skiptir til baka — ef þú smellir sjálf(ur) á einhverja aðgerð ferðu strax aftur í Handvirkt."] },
+        { id: "readtable",
+          t: "Að lesa borðið",
+          b: [
+            "Reitur hvers leikmanns sýnir avatar, nafn, stafla og núverandi veðmál. Gjafari og blindir eru merktir með skífunum D / SB / BB. Litað merki á reitnum sýnir síðustu aðgerð leikmannsins; mjó blá stika telur niður umhugsunartíma hans. Reitur þess sem á leik glóir; þegar þú átt leik fær þinn eigin reitur gylltan ramma sem púlsar.",
+            "Stöðustikan fyrir ofan borðið sýnir heildarpottinn, veðmál núverandi lotu, stigið (Pre-flop, Flop, Turn, River) og númer leiks og handar. Spil leikmanna sem sögðu Fold verða hálfgegnsæ; leikmenn sem eru úr leik dofna. Í lok handar getur sigurvegaragluggi tekið saman hver vann hvað — hægt er að slökkva á honum í valkostunum."] },
+        { id: "seatlayout",
+          t: "Uppröðun sæta",
+          b: [
+            "Sem vefviðbót er hægt að velja uppröðun leikmannareitanna í Ítarlegir valkostir → Sæti: Sjálfvirkt fylgir opinbera biðlaranum (fastar stöður í lóðréttri stöðu, reiknaður sporbaugur í láréttri), eða þú getur þvingað fram lóðrétta eða lárétta uppröðun — og Sérsniðið leyfir þér að staðsetja hvert sæti sjálf(ur): breytingahamur birtist þar sem þú dregur hvern reit þangað sem þú vilt, og uppröðunin er vistuð."] },
+        { id: "zoom",
+          t: "Aðdráttur borðs (símar)",
+          b: [
+            "Á litlum skjám draga stækkunarglershnapparnir borðið að (2×) og þú getur fært það til með fingri — aðeins aðgerðastikan helst föst; þinn eigin reitur er líka stækkaður og sýnin fer aftur að honum þegar þú átt leik. Sýnin fylgir virka sætinu sjálfkrafa og dregur aftur frá í uppgjöri til að sýna allt borðið. Hægt er að slökkva á þessu í ítarlegum valkostum. Þegar þú átt leik og sameiginlegu spilin eru utan sýnar birtist lítið afrit af þeim efst á borðinu; ýttu á það til að fara að spilunum og til baka."],
+          note: "Í símum og spjaldtölvum er klípuaðdráttur vafrans sjálfs sjálfgefið óvirkur svo aðdráttarbending í miðri hönd geti ekki virkjast af slysni; kveiktu aftur á honum í Ítarlegir valkostir → Notendaviðmót ef þú þarft á honum að halda." },
+        { id: "protections",
+          t: "Gægjuvörn og vörn gegn Call af slysni",
+          b: [
+            "Tvær valfrjálsar varnir: gægjuvörnin heldur þínum eigin spilum földum þar til þú snertir þau (gagnlegt þegar einhver sér á skjáinn þinn), og vörnin gegn Call af slysni lokar Call-hnappinum stutta stund strax eftir stórt Raise, svo snerting sem ætluð var litlu Call lendi ekki óvart á mun stærri upphæð. Báðar eru í ítarlegum valkostum."] },
+      ]
+    },
+    {
+      id: "info", icon: "📊", title: "Upplýsingaspjaldið",
+      sections: [
+        { id: "open",
+          t: "Að opna spjaldið",
+          b: [
+            "Meðan á leik stendur opnast upplýsingaspjaldið úr hausnum (eða með Alt+L / Alt+I) og hefur þrjá flipa: Skrá, Líkur og Tölfræði. Í símum flýtur það yfir borðinu; á stærri skjám er það gluggi sem hægt er að draga og breyta stærð á — gríptu í ⣿ handfangið til að færa hann og í brúnirnar til að breyta stærð. Staðsetningin er munuð."] },
+        { id: "log",
+          t: "Leikskráin",
+          b: [
+            "Skrá-flipinn skráir allan leikinn, hönd fyrir hönd: blinda, hverja aðgerð með upphæðum, sýnd spil og sigurvegara, með litum svo auðvelt sé að renna yfir. Útflutningshnappur vistar skrána í skrá ef þú vilt fara yfir lotu seinna."] },
+        { id: "odds",
+          t: "Líkur (líkindavakt)",
+          b: [
+            "Líkur-flipinn sýnir, fyrir höndina sem þú ert með, rauntímalíkur á að enda með hvern af 10 handaflokkunum — frá High Card upp í Royal Flush — hvern með sínu tákni, prósentu og stiku. Birtingin verður grá ef þú segir Fold. Hún notar aldrei annað en þín eigin spil og sameiginlegu spilin: hún sér aldrei neitt sem andstæðingarnir hafa ekki sýnt."] },
+        { id: "journal",
+          t: "Handaskrár og Skrár-glugginn",
+          b: [
+            "Auk rauntímaskrárinnar er hver hönd sem þú spilar skráð staðbundið í vafranum þínum, á sama sniði og .pdb skrár opinbera biðlarans. Skrár-glugginn (Ítarlegir valkostir → Skráarskilaboð → Sýsla með skrár…) sýnir lista yfir loturnar þínar og leyfir þér að vinna með þær: forskoða lotu með leit og auðkenningu, sía eftir leik, flytja út sem HTML eða hreinan texta, vista hráu .pdb skrána eða flytja inn .pdb sem skjáborðsbiðlarinn skráði. Hægt er að eyða lotum einni í einu eða öllum í einu (með staðfestingu), og sjálfvirk geymslustilling getur haldið aðeins síðustu 7, 30, 90, 180 eða 365 dögum. Skrár sem þú fluttir inn sjálf(ur) eru aldrei fjarlægðar sjálfkrafa. Önnur stilling takmarkar hve margar lotur eru geymdar, og hægt er að breikka dálk listans með því að draga.",
+            "Til að fjarlægja nokkrar lotur í einu breytir hnappurinn Velja… listanum í gátreiti: hakaðu við þær sem þú vilt ekki lengur og Eyða fjarlægir allan hópinn eftir eina staðfestingu. Á tölvu geturðu líka notað Ctrl (⌘) + smell til að bæta lotum við einni í einu, eða Shift + smell til að taka heilt bil.",
+            "Greina-hnappurinn keyrir handagreiningu á lotu, og einnig er hægt að senda skrána til greiningarþjónustu pokerth.net. Allt helst á tækinu þínu nema þú flytjir það sérstaklega út eða hlaðir því upp."] },
+        { id: "logopts",
+          t: "Valkostir skráningar",
+          b: [
+            "Í Ítarlegir valkostir → Skráarskilaboð geturðu kveikt eða slökkt á skráningu og valið hve oft er skrifað, með sömu þremur stillingum og í skjáborðsbiðlaranum: eftir hverja aðgerð, eftir hverja hönd (sjálfgefið) eða eftir hvern leik. Annar valkostur skrifar .pdb skrána í möppu sem þú velur og heldur henni uppfærðri með sömu tíðni, og skrifar einu sinni enn þegar þú yfirgefur síðuna, svo annað tól geti fylgst með leiknum í rauntíma."],
+          note: "Til að skrifa í staðbundna möppu þarf File System Access API: aðeins Chrome, Edge og Opera á tölvu. Annars staðar útskýrir valkosturinn ástæðuna, og handvirkur útflutningur úr Skrár-glugganum er áfram í boði. Vafrinn getur aðeins skipt skránni út, ekki bætt við hana, svo tól sem les .pdb þarf að opna hana aftur eftir hverja breytingu." },
+        { id: "assist",
+          t: "Aðstoð (styrkur handar)",
+          b: [
+            "Efst á Líkur-flipanum les aðstoðarborðinn höndina fyrir þig. Fyrir flop nefnir hann upphafshöndina þína og gefur henni stjörnur; frá flop sýnir hann bestu núverandi samsetninguna þína og, eftir snögga hermun, áætlaðar líkur þínar á að vinna höndina í prósentum, með lituðum mæli frá rauðu (veik) yfir í grænt (sterk). Eins og líkindavaktin notar hann aðeins upplýsingar sem þú sérð.",
+            "Tveir birtingarstílar eru í boði í Ítarlegir valkostir → Sæti: bútar (tíu kubbar) eða sígild framvindustika. Hægt er að slökkva á allri aðstoðinni í Ítarlegir valkostir → Aðstoð."] },
+        { id: "assistwin",
+          t: "Aðstoð sem fljótandi smágluggi",
+          b: [
+            "Hægt er að losa aðstoðarkubbinn úr spjaldinu í sinn eigin litla glugga sem er alltaf efst: notaðu losunarhnappinn á kubbnum, færðu hann svo og breyttu stærð hans hvar sem er yfir borðinu — hentugt til að hafa auga með styrk handarinnar án þess að opna allt spjaldið. Festihnappurinn setur hann aftur á Líkur-flipann og staðsetningin er munuð. Inni í spjaldinu leyfir draghandfang milli Aðstoðar og Líkna þér að skipta plássinu á milli þeirra."] },
+        { id: "stats",
+          t: "Tölfræði",
+          b: [
+            "Tölfræði-flipinn fylgist með lotunni þinni: spilaðar hendur, séð flop, uppgjör, vinningshlutföll og fleira. Hægt er að slökkva á skráningu tölfræði í ítarlegum valkostum."] },
+        { id: "hud",
+          t: "Tölfræði-HUD á sætum",
+          b: [
+            "HUD bætir litlum tölfræðireit við sæti hvers leikmanns, byggðum á höndunum sem skráðar eru í skrárnar þínar: fjöldi handa sem fylgst hefur verið með, síðan VPIP (hve oft hann leggur fé í pottinn af fúsum vilja pre-flop), PFR (Raise pre-flop) og AF (ágengnistuðull), með litum frá óvirkum yfir í ágengan. Fyrir neðan þá lýsir merki leikmanninum í einföldum orðum — þéttur-óvirkur, laus-ágengur og svo framvegis — við hlið lítillar skífu þar sem upplýsti hlutinn les þéttur-til-laus frá vinstri til hægri og óvirkur-til-ágengur að neðan og upp. Merkið birtist frá fyrstu hönd en helst dauft fram að 25 höndum, þegar það verður áreiðanlegt. Snertu reit til að fá ítarlegan sprettiglugga með öllum tölunum (3-bet, framhaldsveðmál, Fold við 3-bet, stuldartilraunir, uppgjörshlutföll…) og dragðu reit ef hann hylur eitthvað.",
+            "HUD veit aðeins það sem þú hefur séð við þín eigin borð — það les staðbundnu handaskrárnar þínar, svo skráning þarf að vera virk og tölurnar verða fyrst marktækar eftir nógu margar hendur. Sjálfgefið er slökkt á því: kveiktu á því í Ítarlegir valkostir → Aðstoð."] },
+        { id: "handsbtn",
+          t: "Yfirlit yfir handasamsetningar",
+          b: [
+            "Pókerhandatáknið á dúknum opnar fljótlegt yfirlit yfir samsetningarnar 10 hvenær sem er — gagnlegt meðan þú ert að læra. Hægt er að fela það í ítarlegum valkostum."] },
+      ]
+    },
+    {
+      id: "chat", icon: "💬", title: "Spjall og samskipti",
+      sections: [
+        { id: "panels",
+          t: "Spjall anddyris og spjall leiks",
+          b: [
+            "Það er eitt spjall í anddyrinu og eitt við borðið. Í símum flýtur leikspjallið yfir borðinu; á stærri skjám er það gluggi sem hægt er að draga og breyta stærð á. Merki á spjallhnappinum telur ólesin skilaboð."] },
+        { id: "typing",
+          t: "Innsláttarhjálp",
+          list: [
+            "Tab klárar gælunafn — ýttu aftur á Tab til að fletta á milli þeirra sem passa.",
+            "↑ / ↓ fletta í gegnum sögu þinna eigin skilaboða.",
+            "Emoji-hnappurinn opnar allan veljarann; ef þú slærð inn : eru tákn lögð til jafnóðum."] },
+        { id: "emotes",
+          t: "Tákn og broskarlar",
+          b: [
+            "Spjallið breytir stuttkóðum tákna nákvæmlega eins og opinberi skjáborðsbiðlarinn: sláðu inn heiti milli tvípunkta og það verður að emoji — :sunny: → ☀, :+1: → 👍, :joy: → 😂, :four_leaf_clover: → 🍀… Yfir 1.900 kóðar eru studdir (allt GitHub-safnið). Sígildir textabroskarlar breytast líka: :-) ;) :D xD :P <3 og um áttatíu aðrir.",
+            "Ef þú slærð inn : opnast tillögugluggi sem klárar kóðann jafnóðum (↑/↓ til að velja, Tab eða Enter til að samþykkja). Hægt er að slökkva alveg á emoji-umbreytingu í Ítarlegir valkostir → Spjall."] },
+        { id: "commands",
+          t: "Spjallskipanir",
+          b: [
+            "Spjallið skilur skástriksskipanir. Tvær eru sýnilegar öðrum:"],
+          keys: [
+            ["/me <text>", "aðgerðarskilaboð, sýnd sem “* NafniðÞitt texti”"],
+            ["/emoji <emoji>", "spilar emoji-viðbragð (það sem viðbragðaveljarinn sendir)"]] },
+        { id: "diagcmds",
+          t: "Greiningarskipanir",
+          b: [
+            "Allt annað er staðbundið: svörin eru aðeins sýnd þér og ekkert er sent til borðsins. Sláðu inn /help til að sjá allan listann. Þær gagnlegustu:"],
+          keys: [
+            ["/help", "listi yfir allar skipanir"],
+            ["/update", "leita að nýrri útgáfu og endurnýja"],
+            ["/lang <code>", "skipta um tungumál (t.d. /lang fr)"],
+            ["/sound on|off", "kveikja/slökkva á leikhljóðum"],
+            ["/zoom", "kveikja/slökkva á stækkunargleri borðsins"],
+            ["/clear", "hreinsa spjallið staðbundið"],
+            ["/holdem-practice/table", "upplýsingar um núverandi leik (blindir, leikmenn, staflar)"],
+            ["/diag · /netdbg · /fps", "staða biðlara, greining nets og rammatíðni"],
+            ["/carddbg · /msglog · /audiodbg · /storage · /logdump · /seatdbg", "ítarleg villuleit (spil, samskiptareglur, hljóð, geymsla, sæti)"],
+            ["/copy", "afrita svar síðustu skipunar á klippiborðið"]] },
+        { id: "privatemsg",
+          t: "Einkaskilaboð",
+          b: [
+            "Skrifaðu einum leikmanni án þess að allt anddyrið lesi það. Umslagið við hlið nafns á leikmannalistanum opnar samtal við hann; umslagið í haus anddyrisins opnar síðasta samtal aftur. Samtöl eru geymd á þessu tæki og eru enn til staðar þegar þú kemur aftur, þannig að spjall sem er tekið upp nokkrum dögum síðar heldur sögu sinni — rauð tala á umslaginu sýnir þau sem þú hefur ekki lesið, og ruslatunnan í titli gluggans eyðir samtali fyrir fullt og allt."],
+          keys: [
+            ["/msg <nickname> <text>", "senda einkaskilaboð úr spjalli anddyrisins"],
+            ["/msg \"<nickname with spaces>\" <text>", "sama, þegar bil eru í gælunafninu"]],
+          note: "Skilaboð eru takmörkuð við 128 stafi. Þjónninn kemur ekki einkaskilaboðum til leikmanns sem situr við borð í gangi, og sagan er aðeins geymd í þessum vafra — hún fylgir þér ekki á annað tæki." },
+        { id: "reactions",
+          t: "Emoji-viðbrögð",
+          b: [
+            "Viðbragðahnappurinn opnar veljara með 30 hreyfðum viðbrögðum (🎉, 😂, 😱, 🔥…) sem spilast fyrir ofan sætið þitt með brellu og eru sýnileg öllum við borðið — líka leikmönnum í skjáborðsbiðlaranum. Hægt er að slökkva alveg á viðbrögðum í ítarlegum valkostum."] },
+        { id: "translate",
+          t: "Að skilja alla",
+          b: [
+            "Með spjallþýðingu virka birtist þýðingarhnappur á línunni undir bendlinum — eða á línunni sem þú snertir á snertiskjá — sem sýnir þau skilaboð á þínu tungumáli með innbyggðum þýðanda vafrans. Hægt er að sýna hann varanlega á hverri línu í Ítarlegir valkostir → Spjall, ásamt ábendingu sem útskýrir algengar skammstafanir við borðið (gg, nh, utg…)."],
+          note: "Þýðingin notar Google Translate þjónustuna og virkar í öllum vöfrum — hún þarf aðeins internettengingu. Skilaboð eru aðeins send þýðingarþjónustunni þegar þú snertir þýðingarhnappinn, aldrei sjálfkrafa." },
+        { id: "social",
+          t: "Leikmenn: prófíll, boð, hunsun",
+          b: [
+            "Snertu hvaða leikmann sem er — við borðið eða á lista anddyrisins — til að opna spjaldið hans: prófíll og tölfræði, bjóða honum í leikinn þinn eða hunsa hann (spjallskilaboð hans eru falin; hægt er að afturkalla hunsun hvenær sem er). Hægt er að kveikja á staðfestingu fyrir boð/hunsun í valkostunum."] },
+      ]
+    },
+    {
+      id: "lobby", icon: "🏛️", title: "Anddyri og leikir",
+      sections: [
+        { id: "list",
+          t: "Leikjalistinn",
+          b: [
+            "Anddyrið sýnir lista yfir öll borð á þjóninum. Hver færsla sýnir fjölda leikmanna, gerð leiks, lás ef þörf er á lykilorði eða boði, og stöðumerki: “Bið” (grænt — leikurinn er ekki hafinn, þú getur sest ef sæti er laust), “Í gangi” (hlýr litur — þú getur horft á í beinni ef áhorfendur eru leyfðir) eða “Lokað” (dauft). Fullt borð sýnir fulla talningu eins og 10/10; litir merkjanna fylgja virka þemanu.",
+            "Síufellilistinn þrengir listann alveg eins og skjáborðsbiðlarinn, þar sem hver valkostur er strangari en sá fyrri: aðeins opnir leikir → fela líka full borð → síðan aðeins ekki-einka, aðeins einka eða aðeins stigaleikir. Valið þitt er munað. Leitarreitur finnur leik eftir heiti og leikmannapillan opnar lista yfir alla sem eru á netinu, með leit og röðun."] },
+        { id: "join",
+          t: "Að setjast við borð og horfa á",
+          b: [
+            "Veldu opinn leik og sestu við hann — lás þýðir að lykilorð þarf. Leiki í gangi sem leyfa áhorfendur er hægt að horfa á í beinni: þú sérð borðið og spjallið, en holuspilin haldast falin og þú getur ekkert gert."] },
+        { id: "gameinfo",
+          t: "Upplýsingar um leik",
+          b: [
+            "Áður en þú sest sýnir upplýsingaspjald leiksins allt sem skilgreinir borðið: gerð leiks, blinda og hvernig þeir hækka (tvöföldun eða handvirkur listi), upphafsstafla, tíma á aðgerð, töf milli handa og hverjir eru þegar sestir."] },
+        { id: "create",
+          t: "Að búa til leik",
+          b: [
+            "Búðu til þitt eigið borð: heiti, fjöldi leikmanna, upphafsstafli, fyrsti litli blindur og hækkunaráætlun, tími á aðgerð og hvort áhorfendur eru leyfðir. Fjórar gerðir leikja eru til: Venjulegur (hver sem er), Aðeins skráðir leikmenn, Aðeins með boði og Stigaleikur (telur í opinberu stigatöflunni — engin lykilorð leyfð þar). Þú getur vistað uppáhaldsstillingarnar þínar og hlaðið þeim aftur."] },
+        { id: "invites",
+          t: "Boð",
+          b: [
+            "Leikmenn geta boðið þér að borðinu sínu; þú færð tilkynningu sem þú getur þegið eða hafnað. Eina leiðin inn í leik sem er aðeins með boði er að fá boð."] },
+      ]
+    },
+    {
+      id: "pthnet", icon: "🌐", title: "pokerth.net",
+      sections: [
+        { id: "account",
+          t: "Aðgangurinn þinn",
+          b: [
+            "Opinberi internetþjónninn er pokerth.net. Til að spila þar þarf ókeypis pokerth.net aðgang — skráðu þig á vefsíðunni og skráðu þig svo inn hér með sama gælunafni og lykilorði. Þessi vefbiðlari tengist sama þjóni og skjáborðsbiðlarinn: sömu aðgangar, sömu borð, sama stigatafla, og þú getur setið við sama borð og leikmenn í skjáborðsbiðlaranum."] },
+        { id: "ranked",
+          t: "Stigaleikir og tímabil",
+          b: [
+            "Leikir af gerðinni Stigaleikur telja í opinberu stigatöflu tímabilsins. Prófíllinn þinn í forritinu sýnir hvenær þú skráðir þig, sæti þitt á yfirstandandi tímabili, skor, meðaltal og spilaða leiki, auk nýjustu úrslita þinna. Venjulegir leikir (ekki stigaleikir) eru bara til gamans og breyta engu.",
+            "Allir leikmenn með pokerth.net aðgang geta búið til stigaleikjaborð; gestir geta hvorki tekið þátt í stigaleikjum né búið þá til og spila aðeins venjulega leiki. Stigaleikjaborð tekur 10 leikmenn, hefur ekkert lykilorð og fer sjálfkrafa af stað um leið og það er fullt. Það notar forstillinguna Stigaleikur, „5/5“ sniðið: 5 sekúndur fyrir hverja aðgerð, 5 sekúndur milli handa, 10.000 spilapeningar og litli blindur upp á 50 sem tvöfaldast á 11 handa fresti — hratt og eins fyrir alla, svo leikirnir haldast stuttir og sambærilegir allt tímabilið."] },
+        { id: "rankhow",
+          t: "Hvernig stigataflan er reiknuð",
+          b: [
+            "Í hverjum stigaleik gefur lokasætið þitt stig: 15 fyrir fyrsta sæti, síðan 9, 6, 4, 3, 2 og 1 niður í sjöunda sæti; ekkert fyrir áttunda til tíunda sæti. Borð deilir þannig út 40 stigum alls.",
+            "Skorið þitt er ekki summa þessara stiga heldur meðaltalið þitt á leik, leiðrétt með stuðli sem vex með fjölda spilaðra leikja: nokkur góð úrslit duga ekki til að halda sér á toppnum, það þarf líka stöðugleika — því meira sem þú spilar, því nær færist skorið þínu raunverulega meðaltali. Tímabil standa í ársfjórðung: allt er sett í geymslu og teljarar byrja aftur á núlli við skiptin, og fyrri tímabil eru áfram aðgengileg. Í leik sýnir verðlaunapallshnappurinn stöðu leikmannanna við borðið þitt á tímabilinu."],
+          note: "Stigaskalinn og nákvæm formúla eru ákveðin af stigatöfluþjóni pokerth.net og geta breyst; síðurnar á vefnum eru það sem gildir." },
+        { id: "rankings",
+          t: "Stigatöflusíður",
+          b: [
+            "Stigatöflufærslan opnar opinberu PokerTH stigatöfluna, með leit eftir leikmanni, ásamt stigatöflum samfélaganna (BBC, WEC). Ef þú hefur ekki áhuga á stigatöflum er hægt að fela færsluna í Ítarlegir valkostir → Samfélag."] },
+        { id: "cups",
+          t: "Bikarar samfélaganna: BBC og We Cup",
+          b: [
+            "Tvö samfélög halda eigin keppnir á pokerth.net, hvort með sína síðu og sína stigatöflu. Best Brainies Cup (BBC) er þrepamót sem varð til 2013: þú klifrar úr Step 1 upp í Step 4, og bikar er veittur eftir hvern Step 4 leik og nýtt tímabil hefst. We Cup (WeC) hefur sinn eigin, mun breiðari skala — 75 stig fyrir fyrsta sæti, síðan 45, 30, 20… — og skorið staðlar meðaltalið þitt eftir fjölda spilaðra leikja miðað við aðra meðlimi.",
+            "Báðar stigatöflurnar opnast úr bikarhnappinum, við hlið PokerTH stigatöflunnar. Borðstillingar þessara keppna eru í boði sem forstillingar þegar leikur er búinn til (BBC Step 1 til 4, WEC, WEC Monthly Final, WEC Grand Final), svo þú getur æft við sömu aðstæður. Aðeins stjórnendur bikarsins búa til opinberu leikina: leikmenn skrá sig á síðu bikarsins eða í þræði hans á spjallborðinu, og daglegi WEC-leikurinn kl. 22:00 (að tíma netþjóns) þarf enga skráningu. Forstillingarnar eru aðeins til æfinga og búa ekki til raunverulegan bikarleik."],
+          note: "Ef þú hefur ekki áhuga á bikurunum er hægt að fela þetta efni í einu lagi í Ítarlegir valkostir → Samfélag." },
+        { id: "bbc", t: "BBC (Best Brainies Cup)",
+          b: ["BBC er mót í fjórum þrepum sem samfélag þess sjálfs heldur á pokerth.net frá árinu 2013. Þú klífur upp með miðum: í Step 1 vinna fyrstu tveir leikmennirnir miða í Step 2; í Step 2 og Step 3 fara fyrstu tveir upp um eitt þrep og sá þriðji heldur miðanum. Step 4 er úrslitaleikurinn: bikarinn er veittur, tímabilinu lýkur og nýtt hefst — miðarnir eru þá núllstilltir. Sigurvegari tímabilsins er krýndur eftir stigatöflu tímabilsins.",
+              "Leikir eru spilaðir á hverjum degi kl. 19:30, 21:30, 23:15 og 01:00 að tíma í Berlín (CET/CEST). Aðeins stjórnendur BBC opna borðin og bjóða leikmönnum: ef enginn stjórnandi er tiltækur fer leikurinn ekki fram. Leikur þarf 10 leikmenn (Step 4 gildir líka með 9 ef 10 höfðu skráð sig). Step 4 er settur um leið og 10 leikmenn eru með miða í Step 4: fyrsta föstudag kl. 19:30 að minnsta kosti 10 dögum síðar; séu færri en 10 skráðir færist hann um 8 daga á næsta BBC-tíma, þar til 10 leikmenn eru skráðir.",
+              "Skráðu þig á vef BBC — eða með „Skrá sig í BBC“ á flipanum Viðburðir í fréttum spjallborðsins — allt að 20 mínútum fyrir upphaf. Vinur eða stjórnandi má skrá þig, en þú berð áfram ábyrgð á að spila eða afskrá þig. Ef þú getur ekki spilað leik í Step 2, 3 eða 4 skaltu afskrá þig (eða spyrja í BBC Shoutbox) minnst 20 mínútum fyrir upphaf, annars missir þú venjulega miðann. Einn PokerTH aðgangur á leikmann; ætlast er til að þú hafir spilað minnst 10 stigaleiki á PokerTH með viðunandi árangri — stjórnendur ákveða.",
+              "Stigatafla tímabilsins telur stig eftir sæti: í Step 1 gefur fyrsta sæti 10 stig niður í 1 fyrir tíunda; Step 2 tvöfaldar þau (20 niður í 2), Step 3 þrefaldar þau (30 niður í 3) og Step 4 fjórfaldar þau (40 niður í 4). Skorið þitt er stigin þín á leik margfölduð með stuðli sem vex með fjölda leikja sem þú spilar: 1 eftir einn leik, 2 eftir tvo, 3 eftir fjóra, 4 eftir átta, 5 eftir sextán. Að spila oft gefur lítinn bónus, en hátt skor krefst samt góðra úrslita.",
+              "Fylgstu með leikspjallinu fyrstu mínúturnar: ef endurræsa þarf leikinn skaltu fara eftir fyrirmælum stjórnandans. Ef þú missir tenginguna rétt eftir upphaf skaltu láta vita í BBC Shoutbox. Stjórnandi borðsins tilkynnir úrslitin; ef hann fer áður en leik lýkur getur leikmaður birt úrslitin í Shoutbox með hlekk á greiningu skráarinnar (í þessu forriti: glugginn Skrár → „Greina á pokerth.net“)."],
+          note: "Sýndu vinsemd og virðingu. Ekki er liðið að notaðir séu margir aðgangar eða að skráningum sé hagrætt; ef þú deilir nettengingu með öðrum leikmanni skaltu láta stjórnanda vita áður en þú spilar. Vefur BBC og handbók leikmanna eru til viðmiðunar: reglurnar geta breyst." },
+        { id: "wec", t: "We Cup (WeC)",
+          b: ["We Cup (WeC, einnig skrifað WEC) er samfélagsbikar á pokerth.net sem eigin stjórnendur hans halda, með eigin síðu og eigin stigatöflu. Aðeins stjórnendur WeC búa til leiki hans: daglegi leikurinn kl. 22:00 (að tíma netþjóns) þarf enga skráningu. Mánaðarlega stigataflan leiðir til mánaðarúrslita og árinu lýkur með stórúrslitum.",
+              "Til að taka þátt þarftu minnst 300 stigaleiki, minnst 60% samanlagt af 1. til 4. sæti í All-Time stigatöflunni sem birtist á prófílnum þínum, og tvö tímabil sem er lokið. Fyrir reynslubolta — fleiri en 500 leiki og fjögur liðin tímabil — er viðmiðið meðaltal upp á 5,75 í síðustu 300 leikjum: vegið meðaltal núverandi tímabils og þriggja tímabila þar á undan, þar sem meðaltal hvers tímabils vegur eftir fjölda leikja sem spilaðir voru á því.",
+              "Mánaðarúrslit: frá 2019 er eitt úrslitaborð með 10 leikmönnum. Efstu 10 á mánaðarlegu stigatöflunni komast áfram, með þremur varamönnum. Borðið opnar í síðasta lagi kl. 22:00 og þeim sem komust áfram og eru í anddyrinu er boðið; þegar allir 10 eru mættir hefst það strax, annars bíða stjórnendurnir til kl. 22:05 og bjóða síðan 11., 12. og 13. manni. Stillingar: 10.000 spilapeningar, litli blindur 50, blindar tvöfaldast á 25 handa fresti, 15 sekúndur fyrir hverja aðgerð, 7 sekúndna töf.",
+              "Stórúrslit: í upphafi næsta árs, milli sigurvegara mánaðarúrslitanna og efstu 10 á árlegri stigatöflu WeC sem unnu ekki mánaðarúrslit; þeim sem komast áfram er tilkynnt með einkaskilaboðum eftir desemberúrslitin. Undanúrslit á tveimur borðum skera úr um 10 keppendur í úrslitum. Stillingar: 10.000 spilapeningar, litli blindur 50, blindar tvöfaldast á 35 handa fresti, 25 sekúndur fyrir hverja aðgerð, 7 sekúndna töf. Forstillingarnar WEC, WEC Monthly Final og WEC Grand Final afrita þessar stillingar til æfinga."],
+          note: "Einn aðgangur á leikmann: til að skipta um aðgang skaltu leita til stjórnar WeC. Móðganir, áreitni og svindl eru ekki liðin, og stjórn WeC tekur á allri óviðeigandi hegðun. Síða WeC og þráður hans á spjallborðinu eru viðmiðið: reglurnar geta breyst." },
+        { id: "forumcups",
+          t: "Bikarar og viðburðir spjallborðsins",
+          b: [
+            "Spjallborð pokerth.net heldur líka Monthly Cup, mánaðarlega mótaröð sem skiptir leikmönnum á Gold, Silver og Bronze borð áður en meistari mánaðarins er krýndur, auk sérstakra bikara yfir árið.",
+            "Skráningar, dagskrá, borðstillingar og úrslit eru birt á spjallborðinu og leikirnir eru spilaðir á opinbera þjóninum eins og allir aðrir leikir. pokerth.net aðgangur nægir til að fylgjast með úrslitum; þátttaka í bikar fer fram í gegnum viðkomandi þráð á spjallborðinu. Leikmenn geta líka skráð sig í Monthly Cup beint á síðu hans, monthlycup.pokerth.net."] },
+        { id: "forumnews",
+          t: "Fréttir af spjallborðinu í anddyrinu",
+          b: [
+            "Dagblaðshnappurinn í haus anddyrisins opnar nýjustu innleggin á spjallborði pokerth.net, eina færslu fyrir hvert efni, hvert spjallborð í sínum lit. Merki á hnappinum telur ólesin innlegg; ef innlegg er opnað (nýr flipi) er það merkt sem lesið, og „Merkja allt sem lesið“ hreinsar allt í einu.",
+            "Þetta er vefviðbót: hægt er að fela hnappinn í ítarlegum valkostum („Spjallborðshnappur í haus anddyris“).",
+            "Flipinn „Viðburðir“ sýnir komandi BBC-leiki, daglega WEC-leikinn og næsta Monthly Cup með fjölda skráðra leikmanna, auk nýjustu sigurvegara BBC, WEC og Monthly Cup. Tímarnir eru í þínum staðartíma; aðeins ↗-táknið opnar vef samfélagsins. Valkosturinn „Sýna samfélagsefni (BBC / WEC)“ felur þennan flipa.",
+            "Komandi leikir eru flokkaðir eftir kvöldum. Pikkaðu á viðburð til að velja hann: hnappurinn neðst fylgir honum (skráning í BBC eða Monthly Cup; daglegi WEC-leikurinn kl. 22:00 að tíma netþjóns þarf enga skráningu). BBC-leikur með skráningum opnast líka og sýnir hverjir eru skráðir, BBC-stjórnendur í gulli."] },
+        { id: "avatars",
+          t: "Avatarar og fánar",
+          b: [
+            "Á pokerth.net er avatarnum þínum dreift til annarra leikmanna í gegnum avatarþjóninn, og hægt er að sýna lítinn þjóðfána á reitum leikmanna. Hvort tveggja er valfrjálst og stillanlegt í valkostunum.", "Til að sýna þinn eigin fána: www.pokerth.net → User Control Panel → Profile → Edit profile → Country → Submit. Hann birtist við næstu innskráningu. Gestir hafa engan fána."] },
+      ]
+    },
+    {
+      id: "offline", icon: "🏋️", title: "Æfingahamur",
+      sections: [
+        { id: "what",
+          t: "Hvað þetta er",
+          b: [
+            "Staðbundið / æfing er heill leikur gegn tölvuandstæðingum: engin tenging, enginn aðgangur, ekkert í húfi. Þegar forritið hefur verið sett upp (eða bara heimsótt einu sinni) virkar það alveg ótengt — kjörið til að læra leikinn, prófa viðmótið eða drepa tímann í flugham."] },
+        { id: "setup",
+          t: "Að setja upp leik",
+          b: [
+            "Veldu fjölda andstæðinga, upphafsstafla, blinda og hækkunaráætlun þeirra, og leikhraða. Hægt er að stilla uppröðun og erfiðleikastig bottanna í Ítarlegir valkostir → Staðbundinn leikur — frá mildum andstæðingum upp í erfitt, blandað borð."] },
+        { id: "trophies",
+          t: "Verðlaun",
+          b: [
+            "Æfingahamurinn hefur sína eigin framvindu: 28 verðlaun í sex flokkum (Framvinda, Færni, Stíll, Snið, Skemmtun og leynilegur flokkur) opnast eftir því sem þú spilar — spilaðar hendur, unnir leikir, stór blöff, sérstakar hendur og fleira. Verðlaunaframvindan safnast upp og sameinast milli tækja þegar samstilling stillinga aðgangsins er virk."] },
+        { id: "learn",
+          t: "Góður staður til að læra",
+          b: [
+            "Allt úr hinum köflunum virkar líka hér: líkindavaktin, aðstoðarbirtingin, forval, flýtilyklar. Æfingahamurinn er besti staðurinn til að prófa þetta án pressu áður en haldið er á pokerth.net."] },
+      ]
+    },
+    {
+      id: "style", icon: "🎨", title: "Útlit og hljóð",
+      sections: [
+        { id: "themes",
+          t: "Þemu",
+          b: [
+            "Útlit-hlutinn í ítarlegum valkostum breytir öllu útliti biðlarans. Forstillingar stilla allt með einni snertingu (sígilda græna spilavítið, opinbera PokerTH útlitið…); fyrir neðan þær leyfa aðskildir þættir þér að breyta litaspjaldinu, borðdúknum og framhlið spilanna hverju fyrir sig — ef þú breytir einhverjum þætti verður blandan þín að sérsniðnu þema. Dökkur, ljós eða sjálfvirkur hamur er valinn undir Notendaviðmót, og valið þitt tekur strax gildi, á öllum skjám, og er munað."] },
+        { id: "tablelook",
+          t: "Borð, stokkar og sæti",
+          b: [
+            "Fyrir utan þemað er hægt að breyta nokkrum þáttum hverjum fyrir sig: bakgrunni borðsins, spilastokknum, bakhlið spilanna (sjálfkrafa í stíl við stokkinn eða flyttu inn þína eigin mynd), gjafara- og blindaskífum, stíl aðgerðahnappa og heilum sætapökkum sem breyta útliti leikmannareitanna. Veldu allt í Ítarlegir valkostir → Útlit; breytingar sjást strax við borðið."] },
+        { id: "music",
+          t: "Tónlistarspilari",
+          b: [
+            "Tónlistarfærslan í valmynd haussins opnar lítinn spilara með setustofutónlist: veldu lag af lagalistanum, spila/hlé, fyrra/næsta, stokka, og endurtaka eitt lag, allan lagalistann eða ekkert. Hljóðstyrkur, valið lag og endurtekningarhamur eru munuð. Spilun hefst aldrei sjálfkrafa — vafrar krefjast snertingar — og spilarinn er alveg óháður hljóðbrellum leiksins.",
+            "Tveir þumlar undir titli lagsins segja til um hvort þér líkar það sem er í spilun. Eitt nafnlaust atkvæði á tæki, líka fyrir útvarpsstöðvar, og þú getur breytt því eða afturkallað hvenær sem er; nema rekstraraðilinn birti heildartölurnar sérðu aðeins þinn eigin þumal.", "Á iPhone og iPad notar spilarinn sjálfgefið einfalda spilun svo tónlistin haldi áfram með CarPlay, Bluetooth eða læstum skjá; hljóðstyrkurinn er þá stilltur með hnöppum tækisins eða bílsins. Valkosturinn „Hljóðstyrkur í appinu“ færir aftur hljóðstyrkssleðann, jafnvægið og VU-mælinn, en hljóðið getur hökt í bílnum."] },
+        { id: "sounds",
+          t: "Hljóðbrellur",
+          b: [
+            "Leikhljóðum er skipt í fjóra flokka sem hægt er að kveikja og slökkva á hverjum fyrir sig, eins og í skjáborðsbiðlaranum: leikaðgerðir (gjöf, Check, Call, Raise, þú átt leik…), tilkynning um spjall í anddyri, tilkynningar netleiks (leikmaður mættur, leikur tilbúinn) og tilkynning um hækkun blindra. Einn hljóðstyrkssleði stýrir þeim öllum, í Ítarlegir valkostir → Hljóð."],
+          note: "Allir vafrar — sérstaklega iOS — neita að spila hljóð fyrr en þú hefur snert síðuna einu sinni. Ef leikurinn byrjar hljóðlaus nægir ein snerting hvar sem er til að fá hljóðið aftur; biðlarinn lagar það líka sjálfkrafa þegar iOS stöðvar hljóðvélina (innhringing, forrit sett í bakgrunn…)." },
+        { id: "voice",
+          t: "Raddtilkynningar og titringur",
+          b: [
+            "Tvær leiðir í viðbót til að láta þig vita án þess að þú horfir á skjáinn. Leiktilkynningar lesa atburði leiksins upphátt — aðgerðir, þegar þú átt leik, sigurvegarann — og í Aðgengi-glugganum velurðu hvernig: Af, Innbyggð rödd (talgervill tækisins) eða Skjálesari (NVDA, JAWS, VoiceOver eða TalkBack lesa þá með eigin rödd, án þess að raddirnar tali hvor ofan í aðra). Í símum getur stuttur titringur gefið til kynna að þú eigir leik; hann er í Ítarlegir valkostir → Veðmál og umferð."],
+          note: "Titringur virkar á Android (Chromium-vafrar); Apple veitir vefsíðum ekki aðgang að titrings-API, svo iPhone getur ekki titrað. Raddtilkynningar virka alls staðar, en raddir og tungumál í boði fara eftir kerfinu þínu — biðlarinn notar bestu samsvörun sem hann finnur." },
+      ]
+    },
+    {
+      id: "options", icon: "⚙️", title: "Valkostir og flýtilyklar",
+      sections: [
+        { id: "where",
+          t: "Hvar valkostirnir eru",
+          b: [
+            "Ítarlegir valkostir opnast úr tannhjólsfærslunni í hvaða hausvalmynd sem er. Þeim er raðað í flokka eins og í skjáborðsbiðlaranum: Notendaviðmót, Útlit, Hljóð, Staðbundinn leikur, Netleikur, Internetleikur, Gælunöfn / avatarar, Skráarskilaboð og Afrit og endurstilling. Hver eiginleiki sem er aðeins á vefnum hefur sinn eigin rofa þar, svo þú getur slökkt á öllu sem þú notar ekki."] },
+        { id: "cfgxml",
+          t: "Að skiptast á stillingum við skjáborðsbiðlarann",
+          b: [
+            "Stillingarnar þínar geta ferðast á milli biðlara: flokkurinn Afrit og endurstilling býður upp á út-/innflutning opinberu config.xml skrárinnar (~/.pokerth/config.xml sem skjáborðs- og QML-biðlararnir nota). Útflutningur skrifar sameiginlegu stillingarnar — nafn, skjávalkosti, hljóð, borðstillingar, blinda, útlit — og innflutningur beitir skrá úr skjáborðsbiðlaranum hér. Stillingar sem þessi biðlari þekkir ekki eru varðveittar óbreyttar í skránni.",
+            "Minnispunktarnir þínir um leikmenn ferðast líka með skránni — texti og stjörnueinkunn, skrifað á sama hátt og skjáborðsbiðlararnir lesa það. Litaðir miðar haldast í þessum biðlara: opinbera sniðið hefur engan reit fyrir þá, svo innflutningur snertir aldrei miðana þína."] },
+        { id: "sync",
+          t: "Stillingar sem fylgja þér",
+          b: [
+            "Þegar þú spilar með aðgangi samstillast valkostir þínir, þema, lyklabindingar, tungumál og æfingaverðlaun: breyttu einhverju á einu tæki og næsta tæki sem þú skráir þig inn á tekur við því. Verðlaunaframvinda er sameinuð, aldrei yfirskrifuð, svo ef þú spilar á tveimur tækjum helst það besta úr báðum."] },
+        { id: "backup",
+          t: "Staðbundið afrit af stillingunum þínum",
+          b: [
+            "Geymsla vafrans getur þurrkast út á milli heimsókna (hreinsun, huliðsvöfrun, lítið pláss á diski). Í Chrome, Edge og Opera á borðtölvu getur biðlarinn haldið afritsskrá, pokerth-web-backup.json, uppfærðri í möppu að eigin vali, með vefvalkostum, þemum, spilastokkum, prófílmynd, verðlaunum og tölfræði. Lykilorðið þitt og setan eru aldrei með.",
+            "Þegar þessi vafri ræsist með tómar stillingar býður ásinn þetta í talbólunni sinni, jafnvel þótt slökkt sé á ábendingum hans: „Búa til afrit“ velur möppuna og skrifar fyrstu skrána, „Endurheimta afrit“ sækir allt aftur úr fyrirliggjandi skrá og „Seinna“ leyfir þér að byrja upp á nýtt. Undir Ítarlegir valkostir → Afrit og endurstilling geturðu valið aðra möppu, slökkt á sjálfvirkri skrifun eða flutt afritið út og inn handvirkt í hvaða vafra sem er.",
+            "Firefox getur ekki skrifað í möppu, svo ásinn býðst í staðinn til að vernda stillingarnar þínar: þegar þú hefur samþykkt beiðni Firefox eyðir hann aldrei aftur gögnum þessa vefs af sjálfsdáðum (þú getur þó enn eytt þeim handvirkt). Sami hnappur, „Vernda stillingarnar mínar“, er undir Ítarlegir valkostir → Afrit og endurstilling."] },
+        { id: "updates",
+          t: "Að vera með nýjustu útgáfu",
+          b: [
+            "Biðlarinn uppfærir sig sjálfur: þegar ný útgáfa er gefin út býður borði þér að endurnýja (eða sláðu inn /update í spjallinu til að athuga sjálf(ur)). Stöku sinnum getur lítil vörukönnun birst til að spyrja um álit þitt á eiginleika — þátttaka er valfrjáls og hægt er að slökkva alveg á könnunum í Ítarlegir valkostir → Samfélag."] },
+        { id: "fkeys",
+          t: "Opinberir flýtilyklar",
+          b: [
+            "Opinberu PokerTH aðgerðalyklarnir virka meðan á leik stendur — Alt+S virkar alls staðar:"],
+          keys: [
+            ["F1 / F2 / F3 / F4", "Fold · Check/Call · Bet/Raise · All-In (hægt að snúa röðinni við í valkostunum)"],
+            ["F5", "Sýna spilin þín (þegar það er hægt)"],
+            ["F6 / F7 / F8", "Handvirkt · Sjálfv. Check/Fold · Sjálfv. Check/Call"],
+            ["Alt+M / Alt+K / Alt+F", "Handvirkt · Sjálfv. Check/Call · Sjálfv. Check/Fold"],
+            ["Alt+C / Alt+L / Alt+I", "Spjall · Leikskrá · Líkindaspjald"],
+            ["Alt+S", "Stillingar — hvar sem er í forritinu, ekki aðeins í leik"],
+            ["F11", "Allur skjárinn"]],
+          note: "Flýtilyklar krefjast raunverulegs lyklaborðs. Á Mac eru F-lyklarnir sjálfgefið miðlunarstýringar: haltu Fn niðri (eða kveiktu á “Use F1, F2, etc. as standard function keys” í stillingum macOS). Allur skjárinn er takmarkaður af iOS á iPhone — uppsetning forritsins sem PWA gefur sömu upplifun á öllum skjánum." },
+        { id: "webkeys",
+          t: "Stafalyklar vefsins",
+          b: [
+            "Sem vefviðbót virkja stakir stafalyklar og Alt+T aðgerðir, og hvern þeirra er hægt að endurúthluta í Ítarlegir valkostir → Flýtilyklar:"],
+          keys: [
+            ["F", "Fold"],
+            ["C", "Check / Call"],
+            ["R", "Raise"],
+            ["A", "All-In"],
+            ["1 / 2 / 3", "Bet 1/3 · 1/2 · pottur"],
+            ["Alt+T", "Tölfræðispjald"],
+            ["Esc", "Loka efsta glugganum (líka Til baka-hnappur Android)"],
+            ["↑ ↓ · ↵", "Borðalisti anddyris (náðu í hann með Tab): velja borð · setjast"],
+            ["A–Z · 0–9", "Anddyri: innsláttur utan textareits skrifast beint í spjallið"]],
+          note: "Á Android lokar Til baka-hnappur/bending kerfisins gluggum eins og Escape, í stað þess að yfirgefa leikinn (stillanlegt í valkostunum). iOS hefur engan sambærilegan kerfishnapp — notaðu ✕ á hverjum glugga." },
+        { id: 'gamepad', t: "Leikjastýripinni",
+          b: ["Leikjastýripinni virkar í vöfrum sem styðja gamepad (Xbox, PlayStation, Switch Pro og flestir Bluetooth-pinnar) — ýttu einu sinni á einhvern hnapp hans svo vafrinn finni hann. Select skiptir á milli tveggja hama, sem merki neðst til vinstri sýnir: Leikur, til að spila við borðið jafnvel þótt spjallið eða skráin sé opin, og Leiðsögn, til að fara um skjáinn og glugga hans. Þegar þú átt leik titrar stýripinninn og fer sjálfur aftur í Leik."],
+          keys: [
+            ["Select", "Skipta á milli Leiks og Leiðsagnar"],
+            ["Start", "Valmynd stýripinna: spjall, skrá, líkur, tölfræði, viðbrögð, Hjálp ássins, stillingar, allur skjárinn, hnappar, hætta"],
+            ["A / X / Y", "Leikur: Check/Call · Fold · Bet/Raise (haltu Y inni fyrir All-In)"],
+            ["LT / RT", "Leikur: lækka / hækka upphæð veðmáls"],
+            ["LB / RB", "Leikur: Bet 1/3 · 1/2 · pottur"],
+            ["← / →", "Leikur: spilahamur (Handvirkt · Auto Check/Call · Auto Check/Fold)"],
+            ["D-pad / LS", "Leiðsögn: fara á milli atriða"],
+            ["A / B", "Leiðsögn: velja · til baka (eins og Esc); B gerir aldrei Fold"],
+            ["X / Y", "Leiðsögn: spjall (með skjályklaborðinu) · Hjálp ássins"],
+            ["LB / RB", "Leiðsögn: fyrri / næsti gluggi (borð, opin spjöld, ásinn)"],
+            ["LT / RT", "Leiðsögn: fyrri / næsti flipi"],
+            ["RS", "Fletta"]],
+          note: "Stafirnir fylgja Xbox-uppsetningu: á PlayStation-pinna ✕ = A, ○ = B, □ = X, △ = Y, og aðgerðahnapparnir sýna tákn þíns eigin pinna. Raunverulegur gluggi (stillingar, staðfesting, valmynd stýripinna) skiptir alltaf yfir í Leiðsögn meðan hann er opinn. Til að skrifa opnar A á textareit lyklaborð stýripinnans: snöggar setningar fyrir spjallið, stafir með stefnuhnappnum og A, X eyðir, Y bætir við bili, LB skiptir í hástafi, RB í tölur og tákn, Start sendir, B lokar. Stillingar: Ítarlegir valkostir → Notendaviðmót → Leikjastýripinni." },
+        { id: 'remote', t: "Sjónvarpsfjarstýring (Android TV)",
+          b: ["Á Android TV og Google TV stjórnar fjarstýringin biðlaranum eins og stýripinni, með sömu tveimur hömunum. Í Leik helst hringurinn á aðgerðahnöppunum: færðu hann með örvunum og ýttu á OK. Í Leiðsögn fer hann hvert sem er. Hún kveikist sjálfkrafa á sjónvarpi og hægt er að þvinga hana í Ítarlegir valkostir → Notendaviðmót → Leikjastýripinni."],
+          keys: [
+            ["↑ ↓ ← →", "Leikur: færa á milli aðgerðahnappanna (← → á sleðanum breyta upphæðinni) · Leiðsögn: færa"],
+            ["OK", "Ýta á hnappinn með hringnum / velja"],
+            ["OK ⏱", "Valmynd: Leikur / Leiðsögn, spjall, skrá, Hjálp ássins, stillingar…"],
+            ["↩", "Til baka (eins og Esc); gerir aldrei Fold"],
+            ["⏯", "Skipta á milli Leiks og Leiðsagnar"],
+            ["🔴 🟢 🟡 🔵", "Fold · Check/Call · Bet/Raise · All-In (á fjarstýringum sem hafa þá)"]],
+          note: "Þegar þú átt leik fer biðlarinn aftur í Leik með hringinn á Check/Call. Til að skrifa opnar OK á textareit skjályklaborðið: færðu þig með örvunum, OK skrifar, ↵ lykillinn sendir." },
+      ]
+    },
+  ]
+};

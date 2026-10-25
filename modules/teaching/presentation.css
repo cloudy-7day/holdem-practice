@@ -1,0 +1,21 @@
+/* Small material and movement refinements; PokerTH art and geometry stay intact. */
+body.tc-active .felt-oval{box-shadow:inset 0 1px 2px #ffffff14,inset 0 -12px 30px #00000024,0 8px 25px #0005}
+body.tc-active .pk:not(.back):not(.comm-slot){filter:drop-shadow(0 2px 2px #0005)}
+body.tc-active .seat-plate{transition:opacity .3s ease,filter .3s ease}
+body.tc-active .seat.folded .seat-plate{opacity:.48;filter:saturate(.4)}
+body.tc-active .seat.tc-turn .seat-plate{outline:2px solid #dfca82;outline-offset:4px;filter:drop-shadow(0 0 9px #ddc57650)}
+body.tc-active .seat.tc-turn .seat-avatar{animation:tc-seat-arrive .65s ease-out 1!important}
+body.tc-active .seat.active .seat-plate,body.tc-active .seat.active .seat-plate::after,body.tc-active .my-turn-active,body.tc-active .my-turn-active .action-grid,body.tc-active .pot-huge{animation:none!important}
+body.tc-active .seat.tc-turn .seat-name,body.tc-active .seat.tc-turn .seat-money{opacity:1!important}
+@keyframes tc-seat-arrive{0%{filter:brightness(1.6)}100%{filter:brightness(1)}}
+body.tc-active #g-potbar{overflow:visible}
+body.tc-active #g-potbar[data-street]::after{content:attr(data-street);position:absolute;bottom:calc(100% + 9px);left:50%;transform:translateX(-50%);white-space:nowrap;font:600 10px/1.4 system-ui,'Microsoft YaHei',sans-serif;letter-spacing:1px;color:#e5dcc0;text-shadow:0 1px 3px #000;pointer-events:none}
+body.tc-active #g-potbar[data-street]::before{content:'';position:absolute;right:calc(100% + 16px);top:50%;width:24px;height:34px;transform:translateY(-50%) rotate(-8deg);background:var(--card-back) center/100% 100% no-repeat,#294c47;border:1px solid #d5d9c6;border-radius:3px;box-shadow:2px 2px 0 #d7d6c8,3px 3px 0 #24463e,4px 4px 0 #cecebf,5px 6px 8px #0006;pointer-events:none}
+body.tc-active .fly-chip,.tc-settlement-chip{background:repeating-conic-gradient(#f3e7bb 0deg 16deg,#b98b3d 16deg 60deg);border:2px solid #ffe7aa;box-shadow:inset 0 0 0 3px #a97b38,inset 0 0 0 4px #ead599,0 3px 5px #0006;color:#241b0b;font-weight:800}
+.tc-settlement-chip{position:fixed;width:22px;height:22px;border-radius:50%;z-index:450;pointer-events:none;box-sizing:border-box}
+/* Existing board flips run once per newly rendered card. */
+body.tc-active .pk-flip{animation-duration:.42s}
+body.tc-active .pk-flip:nth-child(2){animation-delay:.12s}
+body.tc-active .pk-flip:nth-child(3){animation-delay:.24s}
+html.tc-motion-off body.tc-active #s-game *,html.tc-motion-off body.tc-active #s-game *::before,html.tc-motion-off body.tc-active #s-game *::after{animation:none!important;transition:none!important}
+html.tc-motion-off body.tc-active :is(.fly-chip,.flying-chip,.fly-card,.allin-chip,.confetti-piece,.win-star,.dealer-badge-fly){display:none!important}

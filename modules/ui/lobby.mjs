@@ -1,0 +1,561 @@
+// ═══════════════════════════════════════════════════════════════════
+// Lobby : liste des tables (filtres, stats bar), panneau « Infos de
+// partie », actions de la wait-page, en-tête TABLE — chantier ESM #9f-8.
+// Fonctions déplacées telles quelles depuis l'IIFE App. Adaptations :
+// t (i18n.mjs), esc (misc.mjs), _groupThousands (fmt.mjs), Proto
+// (net/proto.mjs), _ccToFlag/_avatarChipHtml (player-popup.mjs)
+// importés ; send / renderPlayersList / _lang via window.* ;
+// $( réécrit en document.getElementById(.
+// Fix 0.3.845/846 : `T.PlayerInfoRequest` nu (×3 — renderTablePlayers,
+// _renderInfoPlayerRows, _renderInfoRowsFromPids) était un bug latent
+// préexistant : la ReferenceError était avalée par le try/catch et la
+// demande de pseudo ne partait jamais → MSG.T.PlayerInfoRequest.
+// ═══════════════════════════════════════════════════════════════════
+import { S } from '../game/state.mjs';
+import { t } from '../i18n.mjs';
+import { esc } from './misc.mjs';
+import { _groupThousands } from './fmt.mjs';
+import { Proto } from '../net/proto.mjs';
+import { MSG } from '../net/messages.mjs';
+import { _ccToFlag, _avatarChipHtml } from './player-popup.mjs';
+import { bindLobbyKeynav } from './lobby-keynav.mjs';
+import { notifState } from './wait-alert.mjs';
+import { bindLobbyTypeChat } from './lobby-typechat.mjs';
+
+// ──────────────────────────────────────────────────────────────
+// Game info modal -- snapshot of the current table's settings +
+// state, opened by clicking the "TABLE" label in the game header.
+// Per the user-validated design (Q1=c, Q2=a, Q3=b):
+//   - All sections EXCEPT the player list (saves vertical space).
+//   - Snapshot at click time, not live-updated.
+//   - Subtle underline hover on the trigger.
+// ──────────────────────────────────────────────────────────────
+// NB : le parametre s'appelait « t » et masquait l'import t() de l'i18n
+// (meme piege que dans odds-panel) — renomme en gt.
+function _gameTypeLabel(gt) {
+  // PokerTH NetGameInfo.netGameType enum (from the protocol):
+  //   1 = normal game (the default created via the UI)
+  //   2 = registered-only
+  //   3 = invite-only
+  // The server has no separate "limit/no-limit" field exposed in
+  // the listing -- it's always No Limit Texas Hold'em here.
+  switch (gt) {
+    case 2: return t('gtypeRegistered');
+    case 3: return t('gtypeInvite');
+    default: return t('gtypeNormal');
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// En-tete de jeu : nom de la table + badges de statut, centres.
+// _updateGameHeader() peuple #g-name (nom reel de la partie),
+// #g-admin-badge (visible si je suis admin) et #g-public-badge
+// (Public/Prive selon _gameMeta.priv). _resetGameHeader() remet
+// l'etiquette "TABLE" et masque les badges au depart de la table.
+// ──────────────────────────────────────────────────────────────
+function _updateGameHeader() {
+  var nameEl = document.getElementById('g-name');
+  if (nameEl && S._gameMeta) {
+    nameEl.textContent = S._gameMeta.name || ('#' + (S._gameMeta.id || S.gId));
+  }
+  var adm = document.getElementById('g-admin-badge');
+  if (adm) adm.style.display = S.amGameAdmin ? '' : 'none';
+  var pub = document.getElementById('g-public-badge');
+  if (pub) {
+    var priv = !!(S._gameMeta && S._gameMeta.priv);
+    pub.style.display = '';
+    pub.classList.toggle('g-status-private', priv);
+    pub.classList.toggle('g-status-public', !priv);
+    if (pub.firstChild && pub.firstChild.nodeType === 3) {
+      pub.firstChild.nodeValue = priv ? '\uD83D\uDD12' : '\uD83C\uDF10';
+    }
+    var lbl = pub.querySelector('span');
+    if (lbl) {
+      var key = priv ? 'piPrivate' : 'piPublic';
+      lbl.setAttribute('data-i18n', key);
+      lbl.textContent = t(key);
+    }
+  }
+}
+
+// ── AFFICHAGE DES TABLES ──
+// Resolve mode labels via t() at CALL time, not at module-init time —
+// when this file loads, the i18n table from modules/i18n.mjs hasn't
+// been attached to the closure yet (its <script type=module> defers
+// until after this file's IIFE runs). Building the dict eagerly threw
+// 'ReferenceError: t is not defined', which broke the entire IIFE and
+// left App undefined — that's why no header button worked.
+function MODE_LABEL(mode) {
+  if (mode === 1) return t('modeWaiting');
+  if (mode === 2) return t('modeInProgress');
+  if (mode === 3) return t('modeClosed');
+  return '?';
+}
+function GTYPE(tp) { return ({1:t('gtypeNormal'), 2:t('gtypeRegistered'), 3:t('gtypeInvite'), 4:t('gtypeRanked')})[tp]; }
+
+// Predicate for the table-list filter (design A).
+//   open   = waiting (mode 1) and not full        → joinable now
+//   nopass = not password-protected / invite-only
+//   live   = game in progress (mode 2)             → watchable
+function _tableMatches(g, filter) {
+  var f = parseInt(filter, 10); if (isNaN(f)) f = 0;
+  var prot    = g.priv || g.type === 3;
+  var open    = g.mode === 1;
+  var nonfull = g.players < (g.maxPlayers || 0);
+  switch (f) {
+    case 1: return open;                            // Jeux ouverts
+    case 2: return open && nonfull;                 // + non complets
+    case 3: return open && nonfull && !prot;        // + non privés
+    case 4: return open && nonfull && prot;         // + privés
+    case 5: return open && nonfull && g.type === 4; // + classés
+    default: return true;                           // 0 = Aucun filtre
+  }
+}
+function _refreshFilterChips(entries) {
+  // Menu déroulant (parité QML gameListFilter) : on synchronise juste la
+  // valeur sélectionnée avec le filtre actif.
+  var sel = document.getElementById('g-filter-select');
+  if (sel && sel.value !== String(S._tableFilter)) sel.value = String(S._tableFilter);
+}
+
+// ── Liste dépliable des joueurs par table (lobby) ─────────────
+// GameListNew fournit l'ENSEMBLE des IDs joueurs de chaque table
+// (champ 4, playerIds) — pas leur position de siège — donc on liste
+// qui est présent et on demande à la volée les pseudos inconnus
+// (même déduplication que le roster des joueurs en ligne).
+// Pastille « Admin » de table (parite QML GameAdminBadge, commit 12f5eaf) :
+// marque le createur/hote dans la liste depliee et le panneau Infos. Le
+// libelle et l'infobulle sont i18n ; la ligne porteuse recoit en plus une
+// teinte verte (equivalent Theme.colorGameAdminRow).
+function _adminBadgeHtml() {
+  return '<span class="gp-admin" data-i18n="gameAdminBadge" data-i18n-title="gameAdminTip" title="' + t('gameAdminTip') + '">' + t('gameAdminBadge') + '</span>';
+}
+function renderTablePlayers(gid) {
+  const g = S.games[gid];
+  if (!g) return '';
+  const _gseats = (g.seats || []);
+  if (!_gseats.length) return '<div class="gp-empty">' + t('tablePlayersEmpty') + '</div>';
+  const _adm = g.admin || 0; // admin de table → badge (parite QML GameListItem)
+  return _gseats.map(function(pid){
+    const nm = S.players[pid];
+    if (!nm && !S._pendingNameRequests.has(pid)) {
+      S._pendingNameRequests.add(pid);
+      try { window.send(Proto.encode([[1,0,MSG.T.PlayerInfoRequest],[19,2,Proto.encode([[1,0,pid]])]])); } catch(e) {}
+    }
+    const flag = _ccToFlag(S._playerCountries[pid], 'gp-flag');
+    const label = nm ? esc(nm) : '#' + pid;
+    const av = _avatarChipHtml(pid, label, 'gp-av');
+    const isAdm = _adm && pid === _adm;
+    return '<span class="gp-player' + (nm ? '' : ' gp-pending') + (isAdm ? ' gp-adminrow' : '') + '">' + av + '<span class="gp-name">' + label + '</span>' + flag + (isAdm ? _adminBadgeHtml() : '') + '</span>';
+  }).join('');
+}
+
+// ── Panneau « Infos de partie » (parité officielle) : Type · SB/Capital ·
+//    Joueurs dans la partie. Alimenté au clic sur une ligne. Les libellés
+//    portent data-i18n → retraduits automatiquement par setLang. ──
+function _renderInfoPlayerRows(gid) {
+  var g = S.games[gid]; if (!g) return '';
+  var _gseats = g.seats || [];
+  if (!_gseats.length) return '<div class="lgi-pempty">' + t('tablePlayersEmpty') + '</div>';
+  return _renderInfoRowsFromPids(_gseats, g.admin || 0);
+}
+// pids présents à MA table pendant l'attente : seatData non 'gone' + moi si
+// absent (le serveur n'écho pas toujours mon propre join, surtout créateur).
+function _gamePresentPids() {
+  var pids = Object.keys(S.seatData).map(Number).filter(function(pid){ return S.seatData[pid] && !S.seatData[pid].gone; });
+  if (!S._amSpectator && S.myId && pids.indexOf(S.myId) === -1) pids.push(S.myId);
+  return pids;
+}
+// Rendu des lignes joueurs depuis une liste de pids arbitraire (pour ma
+// partie en attente, où games[gId].seats peut être vide/en retard).
+function _renderInfoRowsFromPids(pids, adminPid) {
+  if (!pids || !pids.length) return '<div class="lgi-pempty">' + t('tablePlayersEmpty') + '</div>';
+  var _adm = adminPid || 0; // admin de table → badge + teinte (parite QML LobbyPage/GameWaitPage)
+  return pids.map(function(pid){
+    var nm = S.players[pid];
+    if (!nm && pid === S.myId) nm = (document.getElementById('nick') ? document.getElementById('nick').value : '') || S.myName;
+    if (!nm && !S._pendingNameRequests.has(pid)) {
+      S._pendingNameRequests.add(pid);
+      try { window.send(Proto.encode([[1,0,MSG.T.PlayerInfoRequest],[19,2,Proto.encode([[1,0,pid]])]])); } catch(e) {}
+    }
+    var flag  = _ccToFlag(S._playerCountries[pid], 'gp-flag');
+    var label = nm ? esc(nm) : '#' + pid;
+    var av    = _avatarChipHtml(pid, label, 'gp-av');
+    var isAdm = _adm && pid === _adm;
+    return '<div class="lgi-prow lgi-click' + (nm ? '' : ' lgi-pending') + (isAdm ? ' lgi-adminrow' : '') + '" role="button" tabindex="0"'
+         + ' onclick="window.openPlayerInfoPopup(' + pid + ')"'
+         + ' onkeydown="if(event.key===\'Enter\')window.openPlayerInfoPopup(' + pid + ')">'
+         + av + flag + '<span class="lgi-pname">' + label + '</span>' + (isAdm ? _adminBadgeHtml() : '') + '</div>';
+  }).join('');
+}
+function renderGameInfoPanel(gid) {
+  var el = document.getElementById('lobby-gameinfo');
+  if (!el) return;
+  // Est-ce MA partie en cours d'attente (créée ou rejointe, pas démarrée) ?
+  // On se base sur gId (posé dès JoinGameAck) et NON sur amInGame, qui n'est
+  // mis à true qu'à GameStartInitial → sinon la barre d'options n'apparaît
+  // jamais pendant l'attente.
+  var _mine = (gid != null && S.gId !== 0 && gid === S.gId && !S._gameStarted);
+  var g = (gid != null) ? S.games[gid] : null;
+  // Créateur : games[gId] peut ne pas encore être peuplé (GameListNew arrive
+  // juste après). On synthétise depuis _gameMeta + variables live.
+  if (!g && _mine && S._gameMeta) {
+    g = { name:S._gameMeta.name, type:S._gameMeta.type, maxPlayers:S._gameMeta.maxPlayers,
+          priv:S._gameMeta.priv, timeout: S.gameTimeout || S._gameMeta.timeout || 0,
+          startMoney: S.gameStartMoney || S._gameMeta.startMoney || 0,
+          smallBlind: S.smallBlind || 0, seats: [], mode: 1 };
+  }
+  if (!g) {
+    el.innerHTML = '<div class="g-chat-panel-header"><span class="lgi-htitle" data-i18n="gameInfoTitle">' + t('gameInfoTitle') + '</span></div>'
+                 + '<div class="lgi-empty" data-i18n="gameInfoEmpty">' + t('gameInfoEmpty') + '</div>';
+    try { _renderLobbyWaitActions(); } catch(e) {}
+    return;
+  }
+  var typeKey = S._GTYPE_KEY[g.type];
+  var typeLbl = GTYPE(g.type) || '';
+  // Liste + décompte des joueurs : pour MA partie, on prend les pids réels
+  // (seatData) au lieu de g.seats qui peut être vide sur une table fraîche.
+  var _pids   = _mine ? _gamePresentPids() : (g.seats || []);
+  var _count  = _pids.length;
+  var _rows   = _mine ? _renderInfoRowsFromPids(_pids, (g.admin || (S.amGameAdmin ? S.myId : 0))) : _renderInfoPlayerRows(gid);
+  var _blUp = (g.raiseMode === 2) ? (g.raiseMins > 0 ? t('blindsUpMins', { n: g.raiseMins }) : '') : (g.raiseHands > 0 ? t('blindsUpHands', { n: g.raiseHands }) : '');
+  // Ordre manuel des blinds (NetGameInfo champ 14) : afficher la structure
+  // complète, comme le Game Info du client officiel.
+  var _mbRow = '';
+  if (g.manualBlinds && g.manualBlinds.length) {
+    _mbRow = '<div class="lgi-row"><span data-i18n="infoBlindsManual">' + t('infoBlindsManual') + '</span> : '
+           + esc(g.manualBlinds.map(function(v){ return _groupThousands(v); }).join(' \u2192 ')) + '</div>';
+  }
+  var _dly  = g.delay || 0;
+  // Bandeau « partie classée » (pokerth.net uniquement, tables ranking et
+  // Cups — type 4) : explique aux nouveaux joueurs qu'il faut une table
+  // pleine (10) pour que la partie démarre et compte au classement.
+  // Masqué dès que la table est complète ou si la partie a démarré.
+  var _rkMax = g.maxPlayers || 10;
+  var _rkBanner = (g.type === 4 && !window._offlineMode
+      && (S._currentLoginMode === 'auth' || S._currentLoginMode === 'guest')
+      && (_mine || g.mode === 1) && _count < _rkMax)
+    ? '<div class="lgi-rankwait" role="status">' + esc(t('rankWaitFull', { n: _count, max: _rkMax })) + '</div>'
+    : '';
+
+  el.innerHTML =
+    '<div class="g-chat-panel-header">'
+      + '<span class="lgi-htitle" data-i18n="gameInfoTitle">' + t('gameInfoTitle') + '</span>'
+      // Drapeau de signalement masque pour les invites (parite QML, upstream 04f5839).
+      + ((typeof window._amMyPlayerGuest === 'function' && window._amMyPlayerGuest()) ? ''
+         : '<button class="lgi-report" type="button" onclick="App.reportGameName(' + parseInt(gid) + ')" title="' + t('reportGameTitle') + '" data-i18n-title="reportGameTitle" aria-label="' + t('reportGameTitle') + '">🚩</button>')
+    + '</div>'
+    + '<div class="lgi-scroll">'
+      + (_mine && g.name ? '<div class="lgi-row lgi-gname">' + esc(g.name) + '</div>' : '')
+      + '<div class="lgi-row"><span class="lgi-ico">🎲</span> <span data-i18n="infoTypeLabel">' + t('infoTypeLabel') + '</span> : '
+        + (typeKey ? '<span data-i18n="' + typeKey + '">' + esc(typeLbl) + '</span>' : esc(typeLbl)) + '</div>'
+      + '<div class="lgi-row lgi-blinds">SB : ' + _groupThousands(g.smallBlind || 0)
+        + ' | <span data-i18n="infoCapitalLabel">' + t('infoCapitalLabel') + '</span> : ' + _groupThousands(g.startMoney || 0) + '</div>'
+      + (_blUp ? '<div class="lgi-row"><span data-i18n="infoBlindsUp">' + t('infoBlindsUp') + '</span> : ' + _blUp + '</div>' : '')
+      + _mbRow
+      + '<div class="lgi-row"><span data-i18n="gameTimeLabel">' + t('gameTimeLabel') + '</span> : ' + (g.timeout || 0) + 's' + (_dly ? '/' + _dly + 's' : '') + '</div>'
+      + _rkBanner
+      + '<div class="lgi-ptitle"><span data-i18n="infoPlayersInGame">' + t('infoPlayersInGame') + '</span> (' + _count + ')</div>'
+      + '<div class="lgi-players">' + _rows + '</div>'
+    + '</div>';
+  // Les options d'attente (case bots + Démarrer/Quitter) vivent désormais
+  // dans la barre du bas (centre), à la place de « + Créer une partie » —
+  // parité client officiel.
+  try { _renderLobbyWaitActions(); } catch(e) {}
+}
+// Barre du bas (centre) : options d'attente selon le type d'utilisateur, à la
+// place de « + Créer une partie » (parité GameWaitPage.qml officiel). Rendue
+// tant que je suis dans une partie NON démarrée (gId posé au JoinGameAck).
+//   Admin (hors ranking) : case « Compléter avec des bots » (si sièges libres)
+//     + « Démarrer la partie » (actif à ≥ 2 joueurs, offline exempté)
+//     + « Quitter la partie ».
+//   Joueur simple / spectateur : « Quitter la partie » + hint d'attente.
+function _renderLobbyWaitActions() {
+  var bar = document.getElementById('lobby-wait-actions');
+  if (!bar) return;
+  var create = document.querySelector('.lobby-footbar .lfb-create');
+  var mine = (S.gId !== 0 && !S._gameStarted);
+  // Mode « ma partie en attente » : la liste passe à droite et mes infos +
+  // le chat au centre (parité client officiel) — piloté par une classe CSS.
+  var _sl = document.getElementById('s-lobby');
+  var _wasWaiting = _sl ? _sl.classList.contains('lobby-waiting') : false;
+  if (_sl) _sl.classList.toggle('lobby-waiting', mine);
+  // Bandeau « En attente de joueurs » du header : synchronisé ici aussi.
+  // _renderLobbyWaitActions est rappelée à chaque rafraîchissement lobby
+  // (renderGameInfoPanel), donc le bandeau ne peut plus rester figé quand
+  // le retour au lobby passe par un chemin qui n'appelle pas _wpHide
+  // (RemovedFromGame → _resetGameState, reconnexion InitAck…). (narmod 26/07)
+  try { _updateLobbyWaitStatus(); } catch (e) {}
+  // Colonne « Inviter » de la liste Joueurs : ajoutée/retirée au changement
+  // de mode -> re-render immédiat (sinon elle n'apparaît qu'au prochain event lobby).
+  if (_sl && _wasWaiting !== mine) { try { if (typeof renderPlayersList === 'function') window.renderPlayersList(); } catch(e) {} }
+  if (!mine) {
+    bar.style.display = 'none'; bar.innerHTML = '';
+    if (create) create.style.display = '';
+    try { _updateFootJoin(); } catch(e){}
+    return;
+  }
+  var g        = S.games[S.gId] || {};
+  var maxP     = g.maxPlayers || (S._gameMeta && S._gameMeta.maxPlayers) || 10;
+  var isRank   = (g.type || (S._gameMeta && S._gameMeta.type) || 1) === 4;
+  var isHost   = !S._amSpectator && S.amGameAdmin && !isRank;
+  var count    = _gamePresentPids().length;
+  // Mode entraînement (offline) : la case « Fill up with computer players »
+  // est cochée par défaut. Sans effet sur les autres modes, et un (dé)cochage
+  // explicite de l'utilisateur (_wpFillBotsUserSet) est respecté.
+  if (!window._wpFillBotsUserSet) window._wpFillBots = !!window._offlineMode;
+  // Démarrage solo AVEC bots : dès que « Compléter avec des joueurs ordinateur »
+  // est coché, l'hôte peut lancer même seul — le serveur remplit les sièges
+  // vides de bots. Aucun filtrage par mode côté client : c'est déjà ce que fait
+  // le bouton admin « Start with bots » de l'en-tête (sans garde), et c'est le
+  // serveur qui accepte ou refuse le remplissage selon sa politique.
+  var canStart = isHost && (count >= 2 || window._offlineMode || window._wpFillBots);
+  var fillRow  = (isHost && count < maxP)
+    ? '<label class="wp-fillbots"><input type="checkbox" id="wp-fillbots-cb"' + (window._wpFillBots ? ' checked' : '') + ' onchange="window._wpSetFillBots(this.checked)"><span>' + t('wpFillBots') + '</span></label>'
+    : '';
+  var leaveBtn = '<button class="wp-btn wp-btn-leave" onclick="App.confirmLeaveGame()">' + t('wpLeaveGame') + '</button>';
+  // Bouton \u00ab Inviter des amis \u00bb (lien #join=\u2026, voir App.shareTableLink)
+  // \u2014 pour tout joueur assis d'une partie en ligne. Pas en entra\u00eenement
+  // local (aucun destinataire possible) ni pour un spectateur. D\u00e9cochable
+  // dans Options avanc\u00e9es (invite_link).
+  var inviteBtn = (!window._offlineMode && !S._amSpectator && (!window._advGet || window._advGet('invite_link', true)))
+    ? '<button class="wp-btn wp-btn-invite" onclick="App.shareTableLink()">' + t('wpInvite') + '</button>'
+    : '';
+  // « 🔔 Notify me » (web.270): a seated player who waits (not the host, not
+  // a spectator, online) and has not answered the browser's question yet —
+  // asked on this click (modules/ui/wait-alert.mjs), never cold. A small pill
+  // at the end of the waiting hint, so Leave / Invite keep their width; on a
+  // narrow phone the bell alone (pokerth.css), the label stays in aria-label.
+  var _nl = String(t('wpNotify')).replace(/^\s*\uD83D\uDD14\s*/, '');
+  var notifyBtn = (!isHost && !S._amSpectator && !window._offlineMode && notifState() === 'default')
+    ? ' <button type="button" class="wp-notify" onclick="window.askNotify && window.askNotify()" title="' + esc(t('wpNotifyTip')) + '" aria-label="' + esc(_nl) + '">'
+      + '<span aria-hidden="true">\uD83D\uDD14</span><span class="wp-notify-lbl"> ' + esc(_nl) + '</span></button>'
+    : '';
+  var startBtn = isHost
+    ? '<button class="wp-btn wp-btn-start" onclick="App.startFromWait()"' + (canStart ? '' : ' disabled') + ' title="' + t('wpStartHumansTip') + '">' + t('wpStartGame') + '</button>'
+    : '';
+  // Table classée (type 4) : pas de lancement par un admin, la partie part
+  // seule quand la table est pleine → hint dédié au lieu de waitingHintGuest.
+  var hint = isHost ? '' : '<div class="lfb-waithint">' + t(S._amSpectator ? 'waitingHintSpectator' : (isRank ? 'waitingHintRanked' : 'waitingHintGuest')) + notifyBtn + '</div>';
+  bar.innerHTML = fillRow + '<div class="wp-actions">' + leaveBtn + inviteBtn + startBtn + '</div>' + hint;
+  bar.style.display = 'flex';
+  if (create) create.style.display = 'none';
+  try { _updateFootJoin(); } catch(e){}
+}
+// Rafraîchit le panneau si une partie est sélectionnée (noms/joueurs qui arrivent).
+// Affiche/masque le bouton « Rejoindre » du bas selon la partie sélectionnée :
+// visible seulement pour une partie OUVERTE (mode 1) et si je ne suis pas déjà
+// en partie (le footer montre alors les options d'attente). Parité LobbyPage QML.
+// pokerth.net : un joueur invité (guest) ne peut rejoindre que les parties
+// de type « Normal » (1) — le serveur refuse registered-only (2),
+// invite-only (3) et ranking (4). On masque/bloque côté client pour
+// éviter un rejet serveur cryptique.
+function _guestJoinBlocked(g) {
+  return S._currentLoginMode === 'guest' && !!g && g.type != null && g.type !== 1;
+}
+
+function _updateFootJoin() {
+  var g = (S._selectedGame != null && typeof S.games !== 'undefined') ? S.games[S._selectedGame] : null;
+  var bj = document.getElementById('lobby-foot-join');
+  var bs = document.getElementById('lobby-foot-spec');
+  // Déjà dans une partie (assis, en attente de démarrage OU démarrée) : on
+  // ne propose ni Rejoindre ni Spectateur — seules Démarrer/Quitter restent.
+  // gId!=0 couvre l'attente (amInGame est encore faux avant le démarrage).
+  var busy = S.amInGame || (typeof S.gId !== 'undefined' && S.gId !== 0);
+  var joinable  = !!(g && g.mode === 1) && !busy && !_guestJoinBlocked(g);   // partie ouverte (et autorisée pour un invité)
+  var watchable = !!(g && g.mode === 2) && !busy;   // partie en cours
+  if (bj) bj.style.display = joinable  ? '' : 'none';
+  if (bs) bs.style.display = watchable ? '' : 'none';
+}
+
+function _refreshGameInfoPanel() {
+  _updateFootJoin();
+  if (S._selectedGame != null) {
+    if (S.games[S._selectedGame]) renderGameInfoPanel(S._selectedGame);
+    else { S._selectedGame = null; renderGameInfoPanel(null); }
+  }
+}
+
+
+// ── LobbyStatsBar (parité QML, bible §16) : « X joueurs · Y en cours ·
+// Z ouvertes », alimentée par la liste des tables + StatisticsMessage. ──
+function updateLobbyStatsBar() {
+  var el = document.getElementById('lsb-text');
+  if (!el) return;
+  var open = 0, running = 0;
+  try {
+    Object.values(S.games).forEach(function (g) {
+      if (g.mode === 2) running++;
+      else if (g.mode === 1) open++;
+    });
+  } catch (e) {}
+  el.textContent = S._lobbyPlayerCount + ' ' + t('playersOnline') + ' \u00b7 '
+    + running + ' ' + t('lsbRunning') + ' \u00b7 ' + open + ' ' + t('lsbOpen');
+}
+
+// Aide de l'As (modules/guide) : la liste des tables pour qui l'écoute —
+// instantané (id, type, joueurs, max, état) et événement « pth:games » émis
+// après chaque rendu de la liste. Écoute seule : le rendu n'en dépend pas.
+function gameListSnapshot() {
+  var out = [];
+  try {
+    Object.keys(S.games).forEach(function (id) {
+      var g = S.games[id]; if (!g) return;
+      out.push({ id: parseInt(id, 10), type: g.type, players: g.players | 0, max: g.maxPlayers || 10,
+                 mode: g.mode, started: g.mode === 2, priv: !!g.priv, name: g.name });
+    });
+  } catch (e) {}
+  return out;
+}
+var _gamesEvtTimer = 0;
+function _emitGamesSoon() {
+  if (_gamesEvtTimer) return;
+  _gamesEvtTimer = setTimeout(function () {
+    _gamesEvtTimer = 0;
+    try { window.dispatchEvent(new CustomEvent('pth:games', { detail: gameListSnapshot() })); } catch (e) {}
+  }, 0);
+}
+window._gameListSnapshot = gameListSnapshot;
+
+function renderGames() {
+  _emitGamesSoon();   // Aide de l'As : après ce rendu (quel que soit le chemin de sortie)
+  // Utiliser entries() pour avoir l'id ET l'objet
+  const entries = Object.entries(S.games);
+  entries.sort(([,a],[,b]) => a.mode - b.mode);
+
+  // Per-chip counts + active highlight (on the full set).
+  _refreshFilterChips(entries);
+  updateLobbyStatsBar();
+
+  if (entries.length === 0) {
+    document.getElementById('g-count').textContent = '0 ' + t('tableCount');   // was the English literal: it overwrote the translated <span data-i18n="tableCount"> of the page
+    document.getElementById('g-list').innerHTML = S.loaded
+      ? '<div class="empty">' + t('noTablesAvailable') + '</div>'
+      : '<div class="empty">' + t('loadingTables') + '<br><span class="ld"><span>●</span><span>●</span><span>●</span></span></div>';
+    return;
+  }
+
+  // Apply the active filter.
+  const shown = entries.filter(function(e){ return _tableMatches(e[1], S._tableFilter); });
+  document.getElementById('g-count').textContent = shown.length + ' ' + t('tableCount');
+
+  if (shown.length === 0) {
+    document.getElementById('g-list').innerHTML = '<div class="empty">' + t('noTablesForFilter') + '</div>';
+    return;
+  }
+
+  document.getElementById('g-list').innerHTML = shown.map(([gid, g]) => {
+    const label  = MODE_LABEL(g.mode);
+    const type   = GTYPE(g.type) || '';
+    const lock   = (g.priv || g.type === 3) ? '🔒 ' : '';
+    const badgeCls = g.mode === 2 ? 'live' : (g.mode === 3 ? 'closed' : 'wait');
+    var rawJoin = (typeof t === 'function' ? t('joinBtn') || '\u25B6 Join' : '\u25B6 Join');
+    const joinLabel = (g.priv || g.type === 3)
+      ? '🔒 ' + rawJoin.replace(/^\u25B6\s*/, '')
+      : rawJoin.replace(/^\u25B6\s*/, '');
+    // Pas de Rejoindre/Spectateur sur MA propre table (déjà assis) : gid === gId.
+    const isMyTable = (typeof S.gId !== 'undefined' && S.gId !== 0 && String(gid) === String(S.gId));
+    const watchBtn = (g.mode === 2 && !isMyTable)
+      ? '<button class="btn-join btn-spectate" title="' + t('watchTitle') + '" onclick="event.stopPropagation();App.spectateGame(' + gid + ')">👁 ' + t('spectatorBtn') + '</button>'
+      : '';
+    const guestBlocked = _guestJoinBlocked(g);
+    const joinBtn = (g.mode === 1 && !isMyTable && !guestBlocked)
+      ? '<button class="btn-join" onclick="event.stopPropagation();App.joinGame(' + parseInt(gid) + ')">' + joinLabel + '</button>'
+      : (g.mode === 1 && !isMyTable && guestBlocked)
+        ? '<span class="gl-guestlock" title="' + t('guestJoinBlocked') + '">👤 ' + t('guestNeedAccount') + '</span>'
+        : '';
+    // Meta façon officiel : X/max · Temps : Xs/Ys · Publique/Privée · Classement.
+    // (cash, blindes, hausse et points de sièges sont désormais dans le panneau Infos.)
+    var metaBits = [];
+    metaBits.push('<span>👥 ' + g.players + '/' + (g.maxPlayers || 10) + '</span>');
+    metaBits.push('<span class="game-badge ' + badgeCls + '">' + label + '</span>');
+    var _dly = g.delay || 0;
+    metaBits.push('<span>' + t('gameTimeLabel') + ' : ' + (g.timeout || 0) + 's' + (_dly ? '/' + _dly + 's' : '') + '</span>');
+    metaBits.push('<span>' + ((g.priv || g.type === 3) ? t('piPrivate') : t('piPublic')) + '</span>');
+    if (g.type === 4) metaBits.push('<span>' + t('visRanked') + '</span>');
+    var _sel = (String(gid) === String(S._selectedGame)) ? ' sel' : '';
+    var _open = S._openTables.has(String(gid));
+    var caret = '<button class="gcard-caret" onclick="event.stopPropagation();App.toggleTablePlayers(' + parseInt(gid) + ')" title="' + t('showPlayers') + '" aria-label="' + t('showPlayers') + '" aria-expanded="' + (_open?'true':'false') + '">' + (_open ? '\u25B4' : '\u25BE') + '</button>';
+    return '<div class="game-row gcard' + _sel + (_open ? ' gc-open' : '') + '" data-gid="' + parseInt(gid) + '" onclick="App.selectGame(' + parseInt(gid) + ')">'
+      + '<div class="gcard-main">'
+      + '<div class="game-name">' + lock + esc(g.name) + '</div>'
+      + '<div class="game-meta">' + metaBits.join('') + '</div>'
+      + '</div>'
+      + '<div class="gcard-btns">' + joinBtn + watchBtn + caret + '</div>'
+      + '</div>'
+      + (_open ? '<div class="game-players">' + renderTablePlayers(gid) + '</div>' : '');
+  }).join('');
+  _refreshGameInfoPanel();
+  _updateFootJoin();
+}
+
+// Statut « En attente de joueurs… » centre dans le header du lobby :
+// visible tant que je suis dans une table creee/rejointe non demarree.
+// Le texte est i18n (hdrWaitingPlayers) ; les points sont animes en CSS.
+function _updateLobbyWaitStatus() {
+  var el = document.getElementById('lobby-wait-status');
+  if (!el) return;
+  // « En attente » = je suis dans une table rejointe/creee non demarree.
+  // NB : amInGame ne passe a true qu'au debut de la 1re main (HandStart),
+  // donc on s'appuie sur gId (table courante) + !_gameStarted uniquement.
+  var waiting = !!(S.gId && !S._gameStarted);
+  el.style.display = waiting ? '' : 'none';
+  // Parite QML GameWaitPage : en spectateur, « Spectating — waiting for the
+  // next hand » remplace « Waiting for players ». La cle data-i18n est
+  // permutee pour que setLang retraduise correctement a chaud.
+  var txt = document.getElementById('lws-txt');
+  if (txt) {
+    var key = S._amSpectator ? 'hdrSpectatingWait' : 'hdrWaitingPlayers';
+    if (txt.getAttribute('data-i18n') !== key) {
+      txt.setAttribute('data-i18n', key);
+      try { txt.textContent = t(key); } catch (e) {}
+    }
+  }
+}
+
+export { MODE_LABEL, GTYPE, _tableMatches, _refreshFilterChips,
+         renderTablePlayers, _renderInfoPlayerRows, _gamePresentPids,
+         _renderInfoRowsFromPids, renderGameInfoPanel, _renderLobbyWaitActions,
+         _guestJoinBlocked, _updateFootJoin, _refreshGameInfoPanel,
+         updateLobbyStatsBar, renderGames, _gameTypeLabel, _updateGameHeader,
+         _updateLobbyWaitStatus };
+
+for (const [k, v] of Object.entries({ MODE_LABEL, GTYPE, _tableMatches,
+  _refreshFilterChips, renderTablePlayers, _renderInfoPlayerRows,
+  _gamePresentPids, _renderInfoRowsFromPids, renderGameInfoPanel,
+  _renderLobbyWaitActions, _guestJoinBlocked, _updateFootJoin,
+  _refreshGameInfoPanel, updateLobbyStatsBar, renderGames, _gameTypeLabel,
+  _updateGameHeader, _updateLobbyWaitStatus })) window[k] = v;
+
+// Relocalisation à chaud : badges de statut, libellés de type de partie et
+// compteurs de la liste du lobby sont construits en JS, donc invisibles pour
+// le balayage data-i18n* de setLang. Appel inconditionnel — c'est exactement
+// ce que faisait setLang avant la migration ; renderGames() est sans effet
+// tant que la liste n'est pas montée.
+try { window._onLangChange(function () { try { renderGames(); } catch (e) {} }); } catch (e) {}
+
+// Liste des tables au clavier (parité QML b170786, cf. lobby-keynav.mjs).
+// Sélection : comme App.selectGame, sans le panneau glissant du compact.
+// Activation : compact → infos de partie ; large → Rejoindre, seulement si le
+// bouton Rejoindre du bas est proposé (mêmes règles : ouverte, pas déjà
+// assis, invité autorisé ; mot de passe demandé par App.joinGame).
+function _kbSelectGame(gid) {
+  S._selectedGame = parseInt(gid, 10);
+  renderGameInfoPanel(S._selectedGame);
+  renderGames();
+}
+function _kbActivateGame() {
+  if (S._selectedGame == null || !S.games[S._selectedGame]) return;
+  var wide = (typeof window._lobby3IsWide === 'function') ? window._lobby3IsWide() : true;
+  if (!wide) { if (typeof window._lobby3OpenInfo === 'function') window._lobby3OpenInfo(); return; }
+  var bj = document.getElementById('lobby-foot-join');
+  if (!bj || bj.style.display === 'none') return;
+  if (window.App && typeof window.App.joinSelectedGame === 'function') window.App.joinSelectedGame();
+}
+try {
+  bindLobbyKeynav({ listId: 'g-list', current: function () { return S._selectedGame; },
+                    select: _kbSelectGame, activate: _kbActivateGame });
+} catch (e) {}
+// Lobby: a key typed outside a text field goes into the chat (web addition,
+// option lobby_type_chat — cf. lobby-typechat.mjs).
+try { bindLobbyTypeChat({ lobbyId: 's-lobby', inputId: 'chat-in' }); } catch (e) {}

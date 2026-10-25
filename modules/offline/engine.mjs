@@ -1,0 +1,423 @@
+/**
+ * PokerTH Web Client — Offline engine (pure logic, no DOM / no protocol).
+ *
+ * Models a Sit'n'Go (single-table tournament): fixed buy-in stacks, rising
+ * blinds, players eliminated on bust, last one standing wins. The engine is
+ * transport-agnostic: it emits abstract events via onEvent(ev) and receives
+ * decisions via act(playerId, action, amount). A separate adapter maps these
+ * to the PokerTH protobuf messages the existing UI already understands.
+ *
+ * Card encoding matches the client (pokerth.js): 0..51, rank = n%13
+ * (0=2 … 12=A), suit = floor(n/13).  Actions: 0=fold 1=check/call 2=(bet/raise)
+ * — mapped to NetPlayerAction in the adapter, not here.
+ */
+
+export const ACT = { FOLD: 'fold', CHECK: 'check', CALL: 'call', BET: 'bet', RAISE: 'raise', ALLIN: 'allin' };
+
+// ---- Hand evaluation: best 5 of up to 7 cards -> comparable score array ----
+function rankOf(c){ return c % 13; }
+function suitOf(c){ return Math.floor(c / 13); }
+
+function score5(cards){ // returns [category, tiebreakers...] higher = better
+  const ranks = cards.map(rankOf).sort((a,b)=>b-a);
+  const suits = cards.map(suitOf);
+  const flush = suits.every(s=>s===suits[0]);
+  const counts = {};
+  ranks.forEach(r=>counts[r]=(counts[r]||0)+1);
+  // group by count desc, then rank desc
+  const groups = Object.keys(counts).map(Number)
+    .sort((a,b)=> counts[b]-counts[a] || b-a);
+  const uniq = [...new Set(ranks)].sort((a,b)=>b-a);
+  let straightHigh = -1;
+  if (uniq.length === 5){
+    if (uniq[0]-uniq[4]===4) straightHigh = uniq[0];
+    else if (uniq[0]===12 && uniq[1]===3 && uniq[2]===2 && uniq[3]===1 && uniq[4]===0) straightHigh = 3; // wheel A-5
+  }
+  if (flush && straightHigh>=0) return [8, straightHigh];
+  if (counts[groups[0]]===4) return [7, groups[0], groups[1]];
+  if (counts[groups[0]]===3 && counts[groups[1]]===2) return [6, groups[0], groups[1]];
+  if (flush) return [5, ...ranks];
+  if (straightHigh>=0) return [4, straightHigh];
+  if (counts[groups[0]]===3) return [3, groups[0], ...uniq.filter(r=>r!==groups[0])];
+  if (counts[groups[0]]===2 && counts[groups[1]]===2)
+    return [2, Math.max(groups[0],groups[1]), Math.min(groups[0],groups[1]), uniq.find(r=>r!==groups[0]&&r!==groups[1])];
+  if (counts[groups[0]]===2) return [1, groups[0], ...uniq.filter(r=>r!==groups[0])];
+  return [0, ...ranks];
+}
+function cmpScore(a,b){ for(let i=0;i<Math.max(a.length,b.length);i++){ const x=a[i]||0,y=b[i]||0; if(x!==y) return x-y; } return 0; }
+function combos(arr,k){ const r=[]; (function go(s,c){ if(c.length===k){r.push(c.slice());return;} for(let i=s;i<arr.length;i++){c.push(arr[i]);go(i+1,c);c.pop();} })(0,[]); return r; }
+export function bestHand(cards){ // cards: up to 7 ints
+  const cs = cards.filter(c=>c!=null && c>=0 && c<52);
+  let best=null; for(const five of combos(cs,5)){ const s=score5(five); if(!best||cmpScore(s,best)>0) best=s; } return best;
+}
+
+export function bestFive(cards){
+  let best=null, chosen=[];
+  for(const five of combos(cards.filter(c=>c!=null && c>=0 && c<52),5)){
+    const score=score5(five);
+    if(!best || cmpScore(score,best)>0){best=score;chosen=five;}
+  }
+  return chosen;
+}
+
+function makeDeck(rng){
+  const d=[]; for(let i=0;i<52;i++) d.push(i);
+  for(let i=51;i>0;i--){ const j=Math.floor(rng()*(i+1)); [d[i],d[j]]=[d[j],d[i]]; }
+  return d;
+}
+
+// Blind schedule is computed per-level by OfflineTable._sbForLevel(),
+// honouring the table's raise interval (hands/minutes) and end-raise mode.
+
+export class OfflineTable {
+  constructor(opts){
+    // Use the caller's objects directly (live references) — augment, don't clone.
+    this.players = opts.players;
+    this.players.forEach(p=>{ p.isBot=!!p.isBot; if(p.in===undefined) p.in=true; });
+    this.baseSB = opts.smallBlind || 10;
+    this.raiseEvery = opts.raiseEvery || 7;       // every N hands (mode 1) or N minutes (mode 2)
+    this.raiseMode    = opts.raiseMode    || 1;   // 1 = every N hands, 2 = every N minutes
+    this.endRaiseMode = opts.endRaiseMode || 1;   // AFTER manual list: 1 = double, 2 = +endRaiseValue, 3 = keep last
+    this.endRaiseValue= opts.endRaiseValue|| 0;   // increment for mode 2
+    // Manual blinds order (official parity, Game::raiseBlinds): sorted list of
+    // small-blind values consumed one per level AFTER the first small blind;
+    // once exhausted, endRaiseMode decides. Empty list = automatic doubling.
+    this.manualBlinds = (opts.manualBlinds || []).filter(n => Number.isInteger(n) && n > 0)
+                                                 .sort((a, b) => a - b)
+                                                 .filter((n, i, a) => a.indexOf(n) === i);
+    this.now = opts.now || (()=>Date.now());      // injectable clock (minutes mode / tests)
+    this.t0 = 0;
+    this.onEvent = opts.onEvent || (()=>{});
+    this.rng = opts.rng || Math.random;
+    this.gameId = opts.gameId || 1;
+    this.handNum = 0;
+    this.button = -1;
+    this.level = 0;
+  }
+  livePlayers(){ return this.players.filter(p=>p.in); }
+
+  start(){ this.onEvent({type:'gameStart', players:this.players.map(p=>({id:p.id,name:p.name,stack:p.stack,isBot:p.isBot,skill:p.skill}))}); this.t0=this.now(); this.nextHand(); }
+
+  // Small blind for a given (0-based) level — official Game::raiseBlinds parity:
+  //   · manual list present: level 0 = baseSB, levels 1..N walk the list, then
+  //     the "after" mode applies (1 = keep doubling, 2 = +endRaiseValue per
+  //     level, 3 = stay at the last listed blind).
+  //   · no list (automatic): blinds double every level. NOTE: the official
+  //     engine ignores endRaiseMode in automatic mode; the legacy web
+  //     behaviours (cap at endRaiseValue / constant) are kept for
+  //     backward-compat since saved prefs may still carry endRaiseMode 2/3.
+  _sbForLevel(level){
+    const base = this.baseSB;
+    const list = this.manualBlinds;
+    if (list && list.length){
+      if (level <= 0) return base;
+      if (level <= list.length) return list[level - 1];
+      const last  = list[list.length - 1];
+      const extra = level - list.length;
+      if (this.endRaiseMode === 2 && this.endRaiseValue > 0) return last + extra * this.endRaiseValue;
+      if (this.endRaiseMode === 3) return last;
+      return Math.round(last * Math.pow(2, Math.min(extra, 30)));
+    }
+    if (this.endRaiseMode === 3) return base;                 // keep last -> never escalate
+    let sb = Math.round(base * Math.pow(2, Math.min(level, 30)));
+    if (this.endRaiseMode === 2 && this.endRaiseValue > 0) sb = Math.min(sb, this.endRaiseValue);
+    return Math.max(base, sb);
+  }
+
+  nextHand(){
+    const live = this.players.filter(p=>p.in);
+    if (live.length<=1){ this.onEvent({type:'gameOver', winnerId: live[0] && live[0].id}); return; }
+    this.handNum++;
+    if (this.raiseMode === 2) {                       // rise every N minutes of wall-clock
+      const mins = Math.max(0, (this.now() - this.t0) / 60000);
+      this.level = this.raiseEvery > 0 ? Math.floor(mins / this.raiseEvery) : 0;
+    } else {                                          // rise every N hands
+      this.level = this.raiseEvery > 0 ? Math.floor((this.handNum-1) / this.raiseEvery) : 0;
+    }
+    const sb = this._sbForLevel(this.level); const bb = sb*2;
+    this.sb=sb; this.bb=bb;
+    // advance button to next live player
+    do { this.button=(this.button+1)%this.players.length; } while(!this.players[this.button].in);
+    // Exception rule (upstream b6f5f7c, fixes pokerth#541): nobody posts the big
+    // blind twice in a row. With three or more players left the plain shift is
+    // right, but on the way down to heads-up - where the button is the small
+    // blind and the other player the big blind - the previous big blind could
+    // be asked to post it again (typically when the button busts). Handing him
+    // the button makes him the small blind instead. Never fires in a heads-up
+    // that was already running: there the blinds simply alternate.
+    if (live.length === 2 && this.h && this.h.bbP && this.h.bbP.in) {
+      const _hu = this._orderFrom(this.button);
+      if (_hu[1] && _hu[1].id === this.h.bbP.id) this.button = this.players.indexOf(this.h.bbP);
+    }
+    const order = this._orderFrom(this.button); // live players starting at button
+    const n = order.length;
+    // blinds
+    const sbPos = n===2 ? 0 : 1;        // heads-up: button is SB
+    const bbPos = n===2 ? 1 : 2 % n;
+    const sbP = order[sbPos % n], bbP = order[(bbPos)%n];
+    this.h = {
+      board:[], deck:makeDeck(this.rng), hole:{}, street:'preflop',
+      committed:{}, streetCommit:{}, folded:{}, allin:{}, inHand:{},
+      currentBet:0, minRaise:bb, sbP, bbP, results:null,
+      actedAt:{}, reopenBy:{},
+      noReraise: new Set(),  // ids barred from re-raising (closed action faced an incomplete all-in)
+      aggressorId: bbP.id   // last player to bet/raise; BB is the preflop aggressor by default
+    };
+    order.forEach(p=>{ this.h.inHand[p.id]=true; this.h.committed[p.id]=0; this.h.streetCommit[p.id]=0; });
+    // deal hole cards
+    order.forEach(p=>{ this.h.hole[p.id]=[this.h.deck.pop(), this.h.deck.pop()]; });
+    this._post(sbP, Math.min(sb, sbP.stack));
+    this._post(bbP, Math.min(bb, bbP.stack));
+    this.h.currentBet = bb; this.h.minRaise = bb;
+    this.onEvent({ type:'handStart', handNum:this.handNum, sb, bb, dealerId:order[0].id,
+      seats: order.map(p=>({id:p.id, stack:p.stack})), holeByPlayer: this.h.hole, sbId:sbP.id, bbId:bbP.id, level:this.level });
+    // Posted blinds are real money on the table, and a real PokerTH server says
+    // so: it emits a PlayersActionDone carrying netActionNone (0) for the small
+    // blind and then the big blind, which is how the client learns the current
+    // highest set and each player's street bet. Staying silent here left the
+    // client opening every pre-flop with highestBet = 0 and both blinds at 0,
+    // so the action bar offered Check/Bet under the gun, Call/Raise in the big
+    // blind, and a small blind whose call was quoted at the full big blind
+    // (forum report, training game). The events are emitted AFTER handStart —
+    // that message resets the client's bets and pot — and before the first
+    // turn, exactly the order a live server produces.
+    [sbP, bbP].forEach((p, i) => this.onEvent({
+      type:'blindPosted', playerId:p.id, blind: i === 0 ? 'sb' : 'bb',
+      totalStreetBet:this.h.streetCommit[p.id], stack:p.stack,
+      currentBet:this.h.currentBet, minRaise:this.h.minRaise, gameState:'preflop' }));
+    // first to act
+    const firstPos = n===2 ? 0 : (3 % n);   // HU: SB(button) acts first preflop; else UTG = left of BB
+    this._beginStreet('preflop', order, firstPos);
+  }
+
+  _orderFrom(start){ const out=[]; const N=this.players.length; for(let i=0;i<N;i++){ const p=this.players[(start+i)%N]; if(p.in) out.push(p); } return out; }
+  _post(p, amt){ p.stack-=amt; this.h.committed[p.id]+=amt; this.h.streetCommit[p.id]+=amt; if(p.stack===0) this.h.allin[p.id]=true; }
+
+  _beginStreet(street, order, firstPos){
+    this.h.street = street;
+    this.h._order = order;
+    // needsToAct = all in-hand, not folded, not all-in
+    this.h.needsToAct = new Set(order.filter(p=>this.h.inHand[p.id] && !this.h.folded[p.id] && !this.h.allin[p.id]).map(p=>p.id));
+    this.h._actPos = firstPos % order.length;
+    this._advanceTurn(true);
+  }
+
+  _activeNotFolded(){ return this.h._order.filter(p=>this.h.inHand[p.id] && !this.h.folded[p.id]); }
+  _canStillBet(){ return this._activeNotFolded().filter(p=>!this.h.allin[p.id]); }
+
+  _advanceTurn(first){
+    const order=this.h._order, N=order.length;
+    // hand ends if only one not folded
+    if (this._activeNotFolded().length<=1){ return this._endHand(); }
+    // if <=1 player can still bet and all matched -> run out remaining streets
+    // (checked BEFORE the "street complete" test so the FIRST run-out street is
+    //  itself flagged as run-out and revealed with suspense, not instantly).
+    if (this._canStillBet().length<=1 && this._allMatched()){ return this._nextStreet(true); }
+    // street ends if nobody needs to act
+    if (this.h.needsToAct.size===0){ return this._nextStreet(); }
+    // find next player (from _actPos) who needs to act
+    let pos = this.h._actPos; let guard=0;
+    while(guard++<=N){ const p=order[pos % N]; if(this.h.needsToAct.has(p.id)){ this.h._actPos=pos; this._requestAction(p); return; } pos++; }
+    return this._nextStreet();
+  }
+  _allMatched(){ return this._activeNotFolded().every(p=> this.h.allin[p.id] || this.h.streetCommit[p.id]===this.h.currentBet); }
+
+  _requestAction(p){
+    const toCall = this.h.currentBet - this.h.streetCommit[p.id];
+    const legal = {
+      canFold: toCall>0,
+      canCheck: toCall===0,
+      canCall: toCall>0 && p.stack>0,
+      callAmt: Math.min(toCall, p.stack),
+      canRaise: p.stack > toCall && !this.h.noReraise.has(p.id) && this._canStillBet().some(q=>q.id!==p.id),
+      minRaiseTo: this.h.currentBet + this.h.minRaise,
+      maxRaiseTo: this.h.streetCommit[p.id] + p.stack,
+      bb:this.bb, pot:this._pot(), street:this.h.street
+    };
+    this.h._pendingId = p.id;
+    const order = this.h._order;
+    const numActive = this._activeNotFolded().length;          // players still contesting the pot
+    const posFromButton = order.findIndex(x=>x.id===p.id);     // 0 = dealer/button (acts last postflop)
+    this.onEvent({ type:'turn', playerId:p.id, isBot:p.isBot, gameState:this.h.street, legal,
+      board:this.h.board.slice(), hole:this.h.hole[p.id].slice(), stack:p.stack,
+      numActive, numPlayers: order.length, posFromButton,
+      stackBB: this.bb>0 ? p.stack/this.bb : 0,
+      mRatio: (this.sb+this.bb)>0 ? p.stack/(this.sb+this.bb) : 0,
+      aggressorId: this.h.aggressorId!=null ? this.h.aggressorId : null });
+  }
+  _pot(){ let s=0; for(const id in this.h.committed) s+=this.h.committed[id]; return s; }
+
+  // Public: apply an action for the player whose turn it is.
+  act(playerId, action, amountTo){
+    if (!this.h || this.h._pendingId!==playerId) return false;
+    const p = this.players.find(x=>x.id===playerId);
+    const toCall = this.h.currentBet - this.h.streetCommit[p.id];
+    // A player whose re-raise was revoked by an earlier incomplete all-in may
+    // only call/fold. Demote any bet/raise/all-in to a plain call BEFORE the
+    // raise logic, otherwise the min-raise clamp below would bump the demoted
+    // amount back up into an (illegal) raise.
+    if ((action===ACT.BET || action===ACT.RAISE || action===ACT.ALLIN) && (this.h.noReraise.has(p.id)||!this._canStillBet().some(q=>q.id!==p.id))) action = ACT.CALL;
+    let kind=action, paid=0;
+    if (action===ACT.FOLD){ this.h.folded[p.id]=true; this.h.needsToAct.delete(p.id); }
+    else if (action===ACT.CHECK || (action===ACT.CALL && toCall===0)){ kind=ACT.CHECK; this.h.needsToAct.delete(p.id); }
+    else if (action===ACT.CALL){
+      paid=Math.min(toCall,p.stack); this._put(p,paid); this.h.needsToAct.delete(p.id);
+      // A call that commits the whole remaining stack is an all-in, as the
+      // server reports it since upstream 660eaed (acts-1631, PokerTH 2.1.10).
+      if (this.h.allin[p.id]) kind=ACT.ALLIN;
+    }
+    else { // bet/raise/allin -> amountTo is target streetCommit
+      let target = amountTo;
+      const maxTo = this.h.streetCommit[p.id]+p.stack;
+      if (target>maxTo) target=maxTo;
+      const minTo = this.h.currentBet + this.h.minRaise;
+      if (target<minTo && target<maxTo) target=minTo;        // clamp up unless all-in short
+      const inc = target - this.h.streetCommit[p.id];
+      paid = inc; this._put(p, inc);
+      const raiseBy = target - this.h.currentBet;
+      if (raiseBy>0){
+        const fullRaise = raiseBy >= this.h.minRaise;          // false = short all-in (incomplete raise)
+        if (fullRaise) this.h.minRaise = raiseBy;              // only a full raise resets minRaise
+        this.h.currentBet = target;
+        this.h.aggressorId = p.id;                             // remember last aggressor
+        // Reopening is player-specific. Several short all-ins may cumulatively
+        // amount to a full raise since that player's last action (TDA rule 47).
+        // A check before the first wager does not close the right to raise.
+        if (fullRaise) this.h.noReraise.clear();
+        this.h._order.forEach(q=>{
+          if (q.id===p.id || !this.h.inHand[q.id] || this.h.folded[q.id] || this.h.allin[q.id]) return;
+          const last=this.h.actedAt[q.id];
+          const locked=!fullRaise && last!=null && last>0 && target-last < (this.h.reopenBy[q.id]||this.h.minRaise);
+          if(locked)this.h.noReraise.add(q.id);else this.h.noReraise.delete(q.id);
+          this.h.needsToAct.add(q.id);
+        });
+      }
+      this.h.needsToAct.delete(p.id);
+      kind = this.h.allin[p.id] ? ACT.ALLIN : (toCall>0?ACT.RAISE:ACT.BET);
+    }
+    this.h.actedAt[p.id]=this.h.currentBet;
+    this.h.reopenBy[p.id]=this.h.minRaise;
+    this.onEvent({ type:'actionDone', playerId:p.id, action:kind, paid,
+      totalStreetBet:this.h.streetCommit[p.id], stack:p.stack,
+      currentBet:this.h.currentBet, minRaise:this.h.minRaise, gameState:this.h.street });
+    this.h._actPos++;
+    this._advanceTurn();
+    return true;
+  }
+  _put(p,amt){ amt=Math.min(amt,p.stack); p.stack-=amt; this.h.committed[p.id]+=amt; this.h.streetCommit[p.id]+=amt; if(p.stack===0) this.h.allin[p.id]=true; }
+
+  // Remove a player mid-hand (e.g. kicked by the admin). Returns:
+  //   'absent' — no such player;
+  //   'idle'   — not contesting the current hand (no hand running, not dealt in,
+  //              or already folded): flagged out, nothing else to do;
+  //   'allin'  — has chips committed and is all-in: NOT removed (those chips are
+  //              owed a showdown); caller should defer removal to end-of-hand;
+  //   'folded' — was live in the hand: folded now (committed chips stay in the
+  //              pot) and the hand is advanced / ended as needed.
+  // For 'idle' and 'folded' we set p.in=false up-front so that if this triggers
+  // the end of the hand, nextHand() won't deal the leaver back in.
+  removePlayer(id){
+    const p = this.players.find(x=>x.id===id);
+    if(!p) return 'absent';
+    if(!this.h || !this.h.inHand[id] || this.h.folded[id]){ p.in=false; return 'idle'; }
+    if(this.h.allin[id]) return 'allin';               // owed a showdown — keep in the pot
+    p.in = false;                                       // out of future hands, before any _endHand
+    if(this.h._pendingId === id){ this.act(id, ACT.FOLD); return 'folded'; }  // their turn: clean fold
+    // Waiting (already acted this street): cold-fold, then end the hand if only one remains.
+    this.h.folded[id] = true; this.h.needsToAct.delete(id);
+    if(this._activeNotFolded().length <= 1) this._endHand();
+    return 'folded';
+  }
+
+  _nextStreet(runOut){
+    const order=this.h._order;
+    order.forEach(p=>this.h.streetCommit[p.id]=0);
+    this.h.currentBet=0; this.h.minRaise=this.bb; this.h.noReraise = new Set(); this.h.actedAt={}; this.h.reopenBy={};
+    const seq=['preflop','flop','turn','river'];
+    const idx=seq.indexOf(this.h.street);
+    if (idx>=3){ return this._showdown(); }
+    const next=seq[idx+1];
+    if (next==='flop'){ const c=[this.h.deck.pop(),this.h.deck.pop(),this.h.deck.pop()]; this.h.board.push(...c); this.onEvent({type:'dealFlop',cards:c, runOut:!!runOut}); }
+    if (next==='turn'){ const c=this.h.deck.pop(); this.h.board.push(c); this.onEvent({type:'dealTurn',card:c, runOut:!!runOut}); }
+    if (next==='river'){ const c=this.h.deck.pop(); this.h.board.push(c); this.onEvent({type:'dealRiver',card:c, runOut:!!runOut}); }
+    this.h.street = next;                                   // advance label BEFORE any recursion
+    if (runOut || this._canStillBet().length<=1){
+      if (next==='river') return this._showdown(true);
+      return this._nextStreet(true);
+    }
+    // postflop: first to act = first live, not folded, not all-in, LEFT of button (index 1+)
+    let firstPos=0;
+    for(let i=1;i<=order.length;i++){ const p=order[i%order.length]; if(this.h.inHand[p.id]&&!this.h.folded[p.id]&&!this.h.allin[p.id]){ firstPos=i%order.length; break; } }
+    this._beginStreet(next, order, firstPos);
+  }
+
+  _endHand(){ // everyone folded but one
+    const winner=this._activeNotFolded()[0];
+    if(!winner){ this._finishHand(); return; }   // defensive: nobody left (shouldn't happen)
+    const pot=this._pot();
+    winner.stack+=pot;
+    this.h.results=[{playerId:winner.id, won:pot, cards:null}];
+    const unmatched=Math.max(0,this.h.committed[winner.id]-Math.max(0,...this.h._order.filter(p=>p.id!==winner.id).map(p=>this.h.committed[p.id]||0)));
+    const pots=[{amount:pot-unmatched,label:'底池',eligibleIds:[winner.id],winnerIds:[winner.id],awards:[{playerId:winner.id,amount:pot-unmatched}]}];
+    if(unmatched)pots.push({amount:unmatched,label:'未被跟注的筹码',eligibleIds:[winner.id],winnerIds:[],refundTo:winner.id,awards:[{playerId:winner.id,amount:unmatched}]});
+    this.h.settlement={kind:'uncontested',pots,winningHands:[]};
+    this.onEvent({type:'endOfHandHide', playerId:winner.id, moneyWon:pot, playerMoney:winner.stack, aggressorId:this.h.aggressorId});
+    this._finishHand();
+  }
+
+  _showdown(runOut){
+    const contenders=this._activeNotFolded();
+    // side pots
+    const commits = {}; this.h._order.forEach(p=>commits[p.id]=this.h.committed[p.id]);
+    const levels=[...new Set(Object.values(commits).filter(v=>v>0))].sort((a,b)=>a-b);
+    let prev=0; const pots=[];
+    for(const L of levels){
+      const contributors=this.h._order.filter(p=>commits[p.id]>=L);
+      const amt=(L-prev)*contributors.length;
+      const elig=contributors.filter(p=>!this.h.folded[p.id]).map(p=>p.id);
+      if(amt>0) pots.push({amt, elig, refundTo:contributors.length===1?contributors[0].id:null});
+      prev=L;
+    }
+    // evaluate
+    const sc={}; contenders.forEach(p=>sc[p.id]=bestHand(this.h.hole[p.id].concat(this.h.board)));
+    const breakdown=[];
+    const won={},contestedWon={}; contenders.forEach(p=>{won[p.id]=0;contestedWon[p.id]=0;});
+    for(const pot of pots){
+      const detail={amount:pot.amt,label:breakdown.filter(p=>p.refundTo==null).length===0?'主池':`边池 ${breakdown.filter(p=>p.refundTo==null).length}`,eligibleIds:pot.elig.slice(),winnerIds:[],awards:[]};
+      breakdown.push(detail);
+      if(pot.refundTo!=null){
+        won[pot.refundTo]=(won[pot.refundTo]||0)+pot.amt;
+        Object.assign(detail,{label:'未被跟注的筹码',refundTo:pot.refundTo,awards:[{playerId:pot.refundTo,amount:pot.amt}]});continue;
+      }
+      const eligScores=pot.elig.map(id=>({id,s:sc[id]})).filter(e=>e.s);
+      if(!eligScores.length) continue;
+      let best=eligScores[0].s; eligScores.forEach(e=>{ if(cmpScore(e.s,best)>0) best=e.s; });
+      const winners=eligScores.filter(e=>cmpScore(e.s,best)===0).map(e=>e.id);
+      detail.winnerIds=winners.slice();
+      const share=Math.floor(pot.amt/winners.length); let rem=pot.amt-share*winners.length;
+      // Odd chips go to the worst position first (closest left of the button =
+      // small blind), i.e. the player who acts first postflop. _order[0] is the
+      // button (rank last); _order[1] is the SB (rank first).
+      const N=this.h._order.length;
+      const posRank=(id)=>{ const idx=this.h._order.findIndex(p=>p.id===id); return idx===0 ? N : idx; };
+      const ordered=[...winners].sort((a,b)=>posRank(a)-posRank(b));
+      ordered.forEach((id,i)=>{ const chips=share+(i<rem?1:0);won[id]+=chips;contestedWon[id]+=chips;detail.awards.push({playerId:id,amount:chips}); });
+    }
+    for(const id in won){ this.players.find(p=>p.id===+id).stack+=won[+id]; }
+    const results=contenders.map(p=>({playerId:p.id, won:won[p.id]||0, contestedWon:contestedWon[p.id]||0, cards:this.h.hole[p.id].slice()}));
+    this.h.results=results;
+    const handNames=['高牌','一对','两对','三条','顺子','同花','葫芦','四条','同花顺'];
+    this.h.settlement={kind:'showdown',pots:breakdown,winningHands:contenders.map(p=>({playerId:p.id,score:sc[p.id],handName:handNames[sc[p.id]?.[0]]||'未成牌',bestFive:bestFive(this.h.hole[p.id].concat(this.h.board))}))};
+    this.onEvent({type:'showdown', board:this.h.board.slice(), results, runOut:!!runOut});
+    this._finishHand();
+  }
+
+  _finishHand(){
+    if(this.h) this.h._pendingId = null;   // close the turn: late timeout acts become no-ops
+    const busted=this.players.filter(p=>p.in && p.stack<=0);
+    busted.forEach(p=>{ p.in=false; this.onEvent({type:'eliminated', playerId:p.id}); });
+    const live=this.players.filter(p=>p.in);
+    if (live.length<=1){ this.onEvent({type:'gameOver', winnerId: live[0] && live[0].id}); return; }
+    this.onEvent({type:'handComplete'});   // driver/adapter decides when to call nextHand()
+  }
+}
