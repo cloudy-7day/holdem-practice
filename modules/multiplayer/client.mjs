@@ -1,3 +1,4 @@
+import '../teaching/orientation.mjs';
 import { analyzeHandAsync } from '../teaching/review-client.mjs';
 const $=id=>document.getElementById(id);
 const make=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};

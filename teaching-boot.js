@@ -23,3 +23,5 @@ function addFriendEntry(){
  document.head.append(style);document.body.append(link);
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',addFriendEntry,{once:true});else addFriendEntry();
+
+import('./modules/teaching/orientation.mjs');
