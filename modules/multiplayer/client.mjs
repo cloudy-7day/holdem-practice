@@ -17,7 +17,7 @@ const key=code=>`pokerth.friend.${code}`;
 function status(message,error=false,action=null){
  $('status').textContent=message;$('status').classList.toggle('error',error);
  if(error)retryAction=action||(()=>credential?poll(true):init());
- $('retry').hidden=!error;$('retry').textContent='重新连接';
+ $('retry').hidden=!error;$('connection-check').hidden=!error;$('retry').textContent='重新连接';
  if(error)requestAnimationFrame(()=>$('connection-feedback').scrollIntoView({block:'nearest'}));
 }
 function message(error){

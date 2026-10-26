@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>检查房间连接 · PokerTH</title>
+<style>body{margin:0;background:#10231e;color:#edf2e9;font:17px/1.6 system-ui,sans-serif}main{max-width:660px;padding:24px;margin:auto}h1{font-size:27px}li{margin:12px 0;padding:14px;border:1px solid #496154;border-radius:12px;list-style:none}ul{padding:0}a{color:#ead38c}button{background:#ead38c;color:#15291e;border:0;border-radius:9px;padding:13px 18px;margin:8px 8px 8px 0;font:inherit;min-height:44px}button:disabled{opacity:.6}textarea{box-sizing:border-box;width:100%;min-height:180px;background:#172e26;color:inherit;border:1px solid #496154;padding:12px;font:14px/1.6 monospace}small{color:#b9c9be}#summary{font-weight:600}</style></head>
+<body><main><a href="multiplayer.html?mode=create">← 返回创建房间</a><h1>检查房间连接</h1><p>大约需要几秒，网络慢时最多等一分钟。检测不会创建房间，也不会读取底牌或登录凭证。</p>
+<ul><li id="config">网页配置：等待检测</li><li id="read">读取房间服务：等待检测</li><li id="write">提交房间请求：等待检测</li></ul>
+<p id="summary" role="status" aria-live="polite">正在检测…</p><button id="run" disabled>重新检测</button><button id="copy" disabled>复制结果</button><p><small>把下面的结果发回当前聊天即可。不包含昵称、房间号或身份凭证。</small></p><textarea id="report" readonly aria-label="连接检测结果"></textarea>
+<script>
+(function(){
+ var ids=['config','read','write'],labels={config:'网页配置',read:'读取房间服务',write:'提交房间请求'},results={},running=false;
+ var origin=location.origin,limit=30000;
+ function el(id){return document.getElementById(id);}
+ function record(id,ok,text,ms){results[id]={ok:ok,text:text,ms:ms};el(id).textContent=labels[id]+'：'+text+(ms!=null?'（'+(ms/1000).toFixed(1)+' 秒）':'');}
+ function probe(url,options){return new Promise(function(resolve){
+  var start=Date.now(),done=false,controller=new AbortController(),timer;
+  function finish(result){if(done)return;done=true;clearTimeout(timer);result.ms=Date.now()-start;resolve(result);}
+  timer=setTimeout(function(){finish({error:'等待 30 秒仍未收到完整响应'});controller.abort();},limit);
+  options=options||{};options.cache='no-store';options.signal=controller.signal;
+  fetch(url,options).then(function(response){return response.text().then(function(body){var data;try{data=JSON.parse(body);}catch(e){}finish({status:response.status,data:data});});}).catch(function(){finish({error:'连接失败，未收到可读取的响应'});});
+ });}
+ function describe(r){return r.error||(r.data&&typeof r.data.error==='string'?r.data.error.slice(0,160)+'；':'')+'HTTP '+r.status;}
+ function finish(){
+  running=false;el('run').disabled=false;el('copy').disabled=false;
+  var all=ids.every(function(id){return results[id]&&results[id].ok;}),slow=ids.some(function(id){return results[id]&&results[id].ms>=12000;});
+  el('summary').textContent=all?(slow?'检测能通过，但有请求超过游戏的 12 秒等待时间。请复制结果，便于调整。':'本次读写检测通过。若建房仍失败，请连同建房提示一起发回。'):'尚未全部连通。请复制结果，便于判断具体卡在哪一步。';
+  el('report').value=['PokerTH 连接检测 v1','站点：'+origin,'时间：'+new Date().toISOString()].concat(ids.map(function(id){return el(id).textContent;})).concat([el('summary').textContent]).join('\n');
+ }
+ function run(){
+  if(running)return;running=true;results={};el('run').disabled=true;el('copy').disabled=true;el('summary').textContent='正在检测，每项最多等待 30 秒…';el('report').value='';ids.forEach(function(id){el(id).textContent=labels[id]+'：等待检测';});
+  probe(new URL('multiplayer-config.json',location.href).href).then(function(config){
+   if(config.status!==200||!config.data||typeof config.data.apiBase!=='string'){
+    record('config',false,describe(config),config.ms);record('read',false,'未执行：还没有取得服务地址');record('write',false,'未执行：还没有取得服务地址');finish();return;
+   }
+   var base=config.data.apiBase.replace(/\/$/,'');
+   if(base){try{var parsed=new URL(base);if(parsed.protocol!=='https:'&&parsed.protocol!=='http:')throw new Error('invalid');}catch(e){record('config',false,'服务地址格式不正确',config.ms);record('read',false,'未执行');record('write',false,'未执行');finish();return;}}
+   record('config',true,'通过',config.ms);el('read').textContent=labels.read+'：正在连接…';el('write').textContent=labels.write+'：正在连接…';
+   // The missing name is deliberately rejected before any room is created.
+   return Promise.all([
+    probe(base+'/api/rooms/config',{headers:{'Content-Type':'application/json'}}).then(function(r){var ok=r.status===200&&r.data&&r.data.enabled===true;record('read',!!ok,ok?'通过':describe(r),r.ms);}),
+    probe(base+'/api/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){var ok=r.status===400&&r.data&&typeof r.data.error==='string'&&r.data.error.indexOf('昵称')!==-1;record('write',!!ok,ok?'通过（服务已收到测试请求，未创建房间）':describe(r),r.ms);})
+   ]).then(finish);
+  }).catch(function(){ids.forEach(function(id){if(!results[id])record(id,false,'检测未完成');});finish();});
+ }
+ el('run').onclick=run;el('copy').onclick=function(){var value=el('report').value;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(function(){el('copy').textContent='已复制';}).catch(function(){el('report').focus();el('report').select();el('copy').textContent='请长按结果复制';});}else{el('report').focus();el('report').select();el('copy').textContent='请长按结果复制';}};
+ run();
+})();
+</script></main></body></html>
