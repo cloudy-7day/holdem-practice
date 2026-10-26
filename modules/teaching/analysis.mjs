@@ -2,6 +2,7 @@
 import { bestHand } from '../offline/engine.mjs';
 import { evaluateSpot } from './equity.mjs';
 import { sizingPlan, assessSizing } from './sizing.mjs';
+import { explainBetPurpose } from './bet-purpose.mjs';
 import { plainDecision, explainCall } from './plain-language.mjs';
 import { suitedAceContinuation } from './preflop-context.mjs';
 const streets={preflop:'翻牌前',flop:'翻牌',turn:'转牌',river:'河牌'};
@@ -15,7 +16,9 @@ export const teachingSources=[
  {title:'PokerStars Learn：补牌与听牌',url:'https://www.pokerstars.com/poker/learn/lesson/calculating-outs/'},
  {title:'GTO Wizard：多人底池',url:'https://blog.gtowizard.com/10-tips-multiway-pots-in-poker/'},
  {title:'GTO Wizard：胜率实现',url:'https://blog.gtowizard.com/equity-realization/'},
- {title:'PokerStars Learn：大盲防守与价格',url:'https://www.pokerstars.com/poker/learn/strategies/defending-your-big-blind/'}
+ {title:'PokerStars Learn：大盲防守与价格',url:'https://www.pokerstars.com/poker/learn/strategies/defending-your-big-blind/'},
+ {title:'PokerStars Learn：下注大小',url:'https://www.pokerstars.com/poker/learn/lesson/bet-sizing/'},
+ {title:'GTO Wizard：下注为什么能获利',url:'https://blog.gtowizard.com/reasons-for-value-betting-in-poker/'}
 ];
 const methodology='基于行动前公开快照，按明确假设的对手范围模拟摊牌份额；范围不是读心，区间不是求解器精度。补牌命中率不等于胜率；跟注EV只是假设后续不再下注的示例。未建模赛事奖金压力、抽水或完整后续策略。';
 function starting(hole=[]){
@@ -133,7 +136,14 @@ function review(d){
  else if(recommendedAction==='raise')recommendedAction=facing?'call':'check';
  const actual=shortCall?'call':['bet','allin'].includes(d.action)?'raise':d.action;
  const same=actual===recommendedAction;
- const sizing=assessSizing(d,sizePlan,{recommendedAction});
+ const purpose=street!=='preflop'&&actual==='raise'&&!['raise','review'].includes(recommendedAction)?explainBetPurpose({context:c,evaluation:e,recommendedAction,decision:d}):null;
+ const drawSizeLarge=purpose?.alternative&&sizePlan.available&&n(d.totalStreetBet)>sizePlan.highTo;
+ if(drawSizeLarge){
+  purpose.label='有听牌，但这次下得较大';
+  purpose.recommendationText=`若选择用下注争取弃牌，先参考 ${sizePlan.lowTo}–${sizePlan.highTo} 筹码的小到中等下注；也可以过牌。`;
+  purpose.reason+='这次超过该参考区间，被跟时承担的损失更大，需要更充分的对手会弃牌或补牌后能收钱的依据；仅仅有听牌，不能证明这个金额划算。';
+ }
+ const sizing=assessSizing(d,sizePlan,{recommendedAction,purpose});
  const raiseIncrement=Math.max(0,Math.min(n(d.totalStreetBet),sizePlan.callableTo??Infinity)-n(c.currentBet));
  const postLarge=sizing.status!=='constrained'&&street!=='preflop'&&actual==='raise'&&raiseIncrement>Math.max(bb,n(l.pot)+e.callCost)*1.5&&n(d.totalStreetBet)>2*(recommendedTo||minTo);
  const sizeUncertain=sizing.status==='large'&&street!=='preflop'&&category>=2;
@@ -144,8 +154,8 @@ function review(d){
  const conditionalAce=suitedAceAlternative&&['call','fold'].includes(actual);
  const incompleteAce=suitedAce?.smallSuitedAce&&!suitedAce.facts.complete&&recommendedAction==='fold'&&actual==='call'&&e.callCost<=4*bb&&n(c.stack)>=40*bb;
  const debatableAce=suitedAce?.smallSuitedAce&&recommendedAction==='fold'&&actual==='call'&&e.callCost<=4*bb&&n(c.stack)>=40*bb&&suitedAce.facts.raises<=1&&(suitedAce.facts.effective==null||suitedAce.facts.effective>=suitedAce.requiredEffective);
- const verdict=incompleteAce?'信息不足，倾向弃牌但不能判错':debatableAce?'这手有取舍，我更倾向弃牌':conditionalAce?'边缘，跟注或弃牌均可考虑':recommendedAction==='review'?'信息不足，不能判错':oversized?'尺寸偏大':sizeUncertain?'大额加注，尺寸需复核':largerBaseline?'尺寸偏大，需说明理由':undersized?'尺寸偏小，可调整':checkAlternative&&actual==='check'?'合理，过牌或小注均可':callAlternative&&actual==='call'?'合理，跟注诱导或价值加注均可':same?(marginal?'边缘，符合默认建议':'合理'):marginal?'边缘，默认'+actions[recommendedAction]:'需要改进';
- const severity=incompleteAce||debatableAce||conditionalAce?'note':recommendedAction==='review'?'note':oversized?'warning':largerBaseline||sizeUncertain||undersized?'note':(checkAlternative&&actual==='check'||callAlternative&&actual==='call')?'note':marginal?'note':same?'good':'warning';
+ const verdict=drawSizeLarge?'有听牌，但下注金额需要复核':purpose?.alternative?'有听牌，过牌或主动下注都可考虑':incompleteAce?'信息不足，倾向弃牌但不能判错':debatableAce?'这手有取舍，我更倾向弃牌':conditionalAce?'边缘，跟注或弃牌均可考虑':recommendedAction==='review'?'信息不足，不能判错':oversized?'尺寸偏大':sizeUncertain?'大额加注，尺寸需复核':largerBaseline?'尺寸偏大，需说明理由':undersized?'尺寸偏小，可调整':checkAlternative&&actual==='check'?'合理，过牌或小注均可':callAlternative&&actual==='call'?'合理，跟注诱导或价值加注均可':same?(marginal?'边缘，符合默认建议':'合理'):marginal?'边缘，默认'+actions[recommendedAction]:'需要改进';
+ const severity=purpose?.alternative||incompleteAce||debatableAce||conditionalAce?'note':recommendedAction==='review'?'note':oversized?'warning':largerBaseline||sizeUncertain||undersized?'note':(checkAlternative&&actual==='check'||callAlternative&&actual==='call')?'note':marginal?'note':same?'good':'warning';
  // Metrics, ranges and draws have their own UI sections; keep the coaching prose compact.
  reason=(street==='preflop'?`${pos}的${s.label}。`:`${e.madeHand}，${multi?'多人':'单挑'}底池。`)+why;
  const suitCount=[0,0,0,0];[...hole,...board].forEach(c=>suitCount[Math.floor(c/13)]++);
@@ -165,9 +175,9 @@ function review(d){
  if(oversized&&street==='preflop')reason+='开池过大使较差牌更容易弃牌，继续范围更强。';
  if(postLarge)reason+=`本次加注增量 ${raiseIncrement}，约为跟注后底池的 ${(raiseIncrement/Math.max(1,n(l.pot)+e.callCost)).toFixed(1)} 倍；${category<=1?'这类中等或较弱牌用大注容易逼走较差牌、留下更强继续范围，小注或控池更合适':'大尺寸需要对手愿用较差强牌跟注，仅凭牌强还不能证明这个尺寸更好'}。`;
  if(recommendedAction==='raise'&&street!=='preflop')next=street==='river'?'若遭再加注，重新比较对手更强的价值牌，避免因已下注而机械跟到底。':'下一街若完成明显顺子或同花，先降速核对对手范围；安全牌上可继续向上述较差成牌取值。';
- const lead=conditionalAce?`可以跟注：再投入 ${e.callCost} 筹码；弃牌也可考虑。`:recommendedAction==='review'?'暂不强判跟注或弃牌。':recommendedAction==='raise'?(n(c.currentBet)===0?`建议下注 ${recommendedTo} 筹码。`:`建议加注到 ${recommendedTo} 筹码（本次再投 ${recommendedTo-n(c.streetCommitted)} 筹码）。`):`建议${actions[recommendedAction]}${recommendedAction==='call'?'：再投入 '+e.callCost+' 筹码':''}。`;
+ const lead=drawSizeLarge?'听牌可以主动下注，但这次金额偏大；更偏向过牌或减小下注。':purpose?.alternative?'可以过牌等补牌，也可以用下注争取对手弃牌。':conditionalAce?`可以跟注：再投入 ${e.callCost} 筹码；弃牌也可考虑。`:recommendedAction==='review'?'暂不强判跟注或弃牌。':recommendedAction==='raise'?(n(c.currentBet)===0?`建议下注 ${recommendedTo} 筹码。`:`建议加注到 ${recommendedTo} 筹码（本次再投 ${recommendedTo-n(c.streetCommitted)} 筹码）。`):`建议${actions[recommendedAction]}${recommendedAction==='call'?'：再投入 '+e.callCost+' 筹码':''}。`;
  // Compact, decision-specific copy for the main review; detailed reasoning stays available.
- const briefReason=plainDecision({context:c,evaluation:e,starting:s,score,category,street,recommendedAction,actual,defendingBlind,noFutureBetting,marginal,oversized,sizeUncertain,undersized,checkAlternative,callAlternative,conditionalAce,preflopContinuation:suitedAce});
+ const briefReason=purpose?.alternative?'对手不爱弃牌时，更偏向过牌；如果下注后遇到加注，要重新看跟注代价，不能因为已经下了就一直跟。':plainDecision({context:c,evaluation:e,starting:s,score,category,street,recommendedAction,actual,defendingBlind,noFutureBetting,marginal,oversized,sizeUncertain,undersized,checkAlternative,callAlternative,conditionalAce,preflopContinuation:suitedAce});
  let nextAdvice='';
  if(severity==='warning'||sizeUncertain)nextAdvice=lead;
  else if(!noFutureBetting&&street!=='preflop'&&street!=='river'&&actual!=='fold'&&e.draws?.length){

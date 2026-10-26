@@ -100,7 +100,7 @@ export function sizingPlan(context={},options={}){
  basisText+=' 下得越大，越可能把差牌吓跑、只留下好牌；小于这个范围也不一定错。';
  return {targetTo,lowTo,highTo,kind,reason,basisText,boardReason,available,bb,street,category,committed,currentBet,pot,callAmt,stack:num(c.stack),minTo,maxTo,callableTo,wet,opponentCount,baselineLowTo,baselineHighTo,constrained:lowTo!==baselineLowTo||highTo!==baselineHighTo,payAmount:targetTo==null?null:targetTo-committed,raiseIncrement:targetTo==null?null:targetTo-currentBet,potFraction:street==='preflop'||!(pot+callAmt)?null:(targetTo-currentBet)/(pot+callAmt),evidenceSufficient:street==='preflop'||Number.isFinite(category)&&pot>0};
 }
-export function assessSizing(decision={},plan={}, {recommendedAction}={}){
+export function assessSizing(decision={},plan={}, {recommendedAction,purpose}={}){
  const action=decision.action||decision.type,paid=num(decision.paid,action==='call'?plan.callAmt:NaN);
  const actualTo=num(decision.totalStreetBet,num(decision.raiseTo,Number.isFinite(paid)?plan.committed+paid:NaN));
  const actualPaid=Number.isFinite(paid)?paid:actualTo-plan.committed;
@@ -108,11 +108,14 @@ export function assessSizing(decision={},plan={}, {recommendedAction}={}){
  const active=['raise','bet','allin'].includes(action)&&!fixedCall;
  const knownAmount=Number.isFinite(actualTo)&&Number.isFinite(actualPaid)&&actualPaid>0&&actualTo>0;
  const raiseIncrement=actualTo-plan.currentBet,potFraction=plan.street!=='preflop'&&plan.pot+plan.callAmt>0?raiseIncrement/(plan.pot+plan.callAmt):null;
- const actualText=(fixedCall||active)&&!knownAmount?'实际金额未记录':fixedCall?`你这次跟注再投了 ${actualPaid} 筹码`:active?`你这次再投了 ${actualPaid} 筹码，本轮加到 ${actualTo} 筹码`+(plan.currentBet===0?`；下之前桌上有 ${plan.pot} 筹码`:`；其中先用 ${plan.callAmt} 筹码 跟上，再多加 ${raiseIncrement} 筹码`):action==='check'?'你这次过牌':'你这次弃牌';
- const result=(status,label,reason,recommendationText='')=>({status,label,actualText,recommendationText,reason,basisText:['unknown','fixed','action-first'].includes(status)?'':plan.basisText||'',boardReason:['unknown','fixed','action-first'].includes(status)?'':plan.boardReason||'',actualTo,actualPaid,raiseIncrement,potFraction});
+ const fractionLabel=potFraction==null?'':potFraction>1?`约 ${Number(potFraction.toFixed(1))} 倍`:Math.abs(potFraction-1/3)<.005?'三分之一':Math.abs(potFraction-.5)<.005?'一半':Math.abs(potFraction-2/3)<.005?'三分之二':Math.abs(potFraction-.75)<.005?'四分之三':Math.abs(potFraction-1)<.005?'一倍':`约 ${Math.round(potFraction*100)}%`;
+ const sizeLabel=potFraction==null?'':potFraction<=.5?'小注':potFraction<=.75?'中等下注':potFraction<=1?'大注':'超过底池的大注';
+ const firstBet=plan.currentBet===0&&plan.street!=='preflop';
+ const actualText=(fixedCall||active)&&!knownAmount?'实际金额未记录':fixedCall?`你这次跟注再投了 ${actualPaid} 筹码`:active?firstBet?(fractionLabel?`这次下 ${actualPaid} 筹码，是底池的${fractionLabel}，属于${sizeLabel}。`:`这次下 ${actualPaid} 筹码；缺少底池记录，无法比较大小。`):`你这次再投了 ${actualPaid} 筹码，本轮加到 ${actualTo} 筹码；其中先用 ${plan.callAmt} 筹码 跟上，再多加 ${raiseIncrement} 筹码`:action==='check'?'你这次过牌':'你这次弃牌';
+ const result=(status,label,reason,recommendationText='')=>({status,label,actualText,recommendationText,reason,basisText:status==='action-first'?purpose?.basisText||'':['unknown','fixed'].includes(status)?'':plan.basisText||'',boardReason:['unknown','fixed','action-first'].includes(status)?'':plan.boardReason||'',actualTo,actualPaid,raiseIncrement,potFraction});
  if((active||fixedCall)&&!knownAmount)return result('unknown','金额缺失','没记下这次具体投了多少，暂时没法判断下得大不大。');
  if(fixedCall)return result('fixed','跟注要付这么多','对手已经下好了，你跟上就要付这些；筹码不够时只能把剩下的全放进去。');
- if(recommendedAction&&!['raise','bet','allin'].includes(recommendedAction))return result('action-first',active?'先想想要不要下':'这次不用比较下多少',recommendedAction==='review'?'现在的信息还不够，先不急着决定下多少。':'这手更建议先'+({check:'过牌',call:'跟注',fold:'弃牌'}[recommendedAction]||recommendedAction)+'，先把这个决定想清楚，再考虑金额。');
+ if(recommendedAction&&!['raise','bet','allin'].includes(recommendedAction))return result('action-first',purpose?.label||'下注理由与金额',purpose?.reason||(recommendedAction==='review'?'缺少可靠的跟注价格或可争底池记录，无法据此判断加注是否划算。':'金额小不代表值得下注；本次没有足够依据证明加注比'+({check:'过牌',call:'跟注',fold:'弃牌'}[recommendedAction]||recommendedAction)+'更有利。'),purpose?.recommendationText||'');
  if(!plan.available||!plan.evidenceSufficient)return result('unknown','信息不足','现在还不好判断该下多少。');
  const recommendationText=plan.kind==='bet'?`建议这次下 ${plan.payAmount} 筹码，${plan.lowTo}–${plan.highTo} 筹码 都可以考虑。`:`建议本轮加到 ${plan.targetTo} 筹码，这次再投 ${plan.payAmount} 筹码（金额框填这个数）；加到 ${plan.lowTo}–${plan.highTo} 筹码 都可以考虑，也就是这次再投 ${plan.lowTo-plan.committed}–${plan.highTo-plan.committed} 筹码。`;
  if(!active)return result('proposed','可以试试这个金额',plan.reason,recommendationText);
