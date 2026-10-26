@@ -61,3 +61,5 @@ html[data-phone-layout="landscape"] .seat:not(.hero){padding-top:2px;padding-bot
 }
 @media(max-height:350px){html[data-phone-layout="landscape"] .seat:not(.hero){width:64px}}
 html[data-phone-layout] .mp-page .top{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+.mp-page[data-entry-mode="create"] #join-code-field,.mp-page[data-entry-mode="create"] #join,.mp-page[data-entry-mode] .divider{display:none}
+.mp-page[data-entry-mode="join"] .config,.mp-page[data-entry-mode="join"] #create{display:none}

@@ -3,7 +3,7 @@
 <head>
 <script src="/holdem-practice/static-host.js"></script>
 <meta charset="UTF-8">
-<script src="/holdem-practice/teaching-boot.js?v=3.1.0"></script>
+<script src="/holdem-practice/teaching-boot.js?v=3.2.0"></script>
 <link rel="stylesheet" href="/holdem-practice/modules/teaching/teaching.css">
 <link rel="stylesheet" href="/holdem-practice/modules/teaching/presentation.css">
 <link rel="stylesheet" href="/holdem-practice/modules/teaching/experience-settings.css">
@@ -1345,19 +1345,25 @@ function _processAvatarFile(file) {
     <div id="invite-banner" style="display:none">🎉 <span data-i18n="invitedBanner">You are invited to join the table</span> «&nbsp;<span id="invite-banner-name"></span>&nbsp;»</div>
     <div id="login-step1">
       <p class="login-lead" data-i18n="loginLead">How do you want to play?</p>
-      <p class="login-lead-sub" data-i18n="loginLeadSub">Pick a mode to continue.</p>
+      <p class="login-lead-sub">一个人练牌，或和朋友一起玩。</p>
       <div class="login-cards">
-        <button type="button" class="login-card" onclick="loginPickMode(this,'pokerthnet')" data-kn-start>
+        <button type="button" hidden style="display:none!important" class="login-card" onclick="loginPickMode(this,'pokerthnet')" data-kn-start>
           <span class="lc-ic"><svg class="lc-globe" viewBox="0 0 24 24" style="width:30px;height:30px;display:block;margin:0 auto" aria-hidden="true"><defs><clipPath id="eglobe-card"><circle cx="12" cy="12" r="10"/></clipPath></defs><circle cx="12" cy="12" r="10" fill="#2f7fd4"/><g clip-path="url(#eglobe-card)" fill="#3fae4e"><path d="M4 6c2-1.5 4.5-1.6 5.6-.4.8.9.2 2-.8 2.5-1 .5-2.3.3-3 1.2-.6.8-.3 2-1.1 2.6-.8.6-2 .3-2.6-.6C1.6 9.6 2.6 7.4 4 6z"/><path d="M14.5 4.6c2.6-.5 5.2.7 6.6 2.8.5 1.4.6 2.8.3 4.1-.7.8-2 .7-2.7-.2-.6-.8-.5-2-1.3-2.6-.8-.6-2 0-2.8-.7-.8-.7-.7-2.1-.1-3.4z"/><path d="M10.5 13.5c1.4-.6 3.1-.3 4.1.8.9 1 .9 2.5.1 3.5-.7.9-1.9 1.3-2.4 2.4-.3.6-.2 1.4-.7 1.8-2-.4-3.8-1.5-5-3.1-.2-1.9.9-3.8 2.6-4.7.4-.3.9-.5 1.3-.7z"/></g><circle cx="12" cy="12" r="9.5" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1"/></svg></span>
           <span class="lc-tx"><span class="lc-t" data-i18n="loginNetTitle">Internet</span><span class="lc-d" data-i18n="loginNetDesc">Play online, ranked</span><span class="lc-live" id="lc-live" style="display:none"></span></span>
           <span class="lc-go">›</span>
         </button>
         <button type="button" class="login-card" onclick="loginPickMode(this,'offline')">
           <span class="lc-ic">🏋️</span>
-          <span class="lc-tx"><span class="lc-t" data-i18n="loginOfflineTitle">Local / training</span><span class="lc-d" data-i18n="loginOfflineDesc">Solo vs bots</span></span>
+          <span class="lc-tx"><span class="lc-t">单人训练</span><span class="lc-d">和电脑练牌，每手结束看中文复盘</span></span>
           <span class="lc-go">›</span>
         </button>
-        <button type="button" class="login-card" onclick="loginPickMode(this,'lan-dedi')">
+        <a class="login-card" id="home-create-room" style="text-decoration:none" href="https://cloudy-7day.github.io/holdem-practice/multiplayer.html?mode=create">
+          <span class="lc-ic" aria-hidden="true">♠</span><span class="lc-tx"><span class="lc-t">创建房间</span><span class="lc-d">开一桌，邀请朋友一起玩</span></span><span class="lc-go" aria-hidden="true">›</span>
+        </a>
+        <a class="login-card" id="home-join-room" style="text-decoration:none" href="https://cloudy-7day.github.io/holdem-practice/multiplayer.html?mode=join">
+          <span class="lc-ic" aria-hidden="true">♣</span><span class="lc-tx"><span class="lc-t">加入房间</span><span class="lc-d">输入朋友发来的六位房间码</span></span><span class="lc-go" aria-hidden="true">›</span>
+        </a>
+        <button type="button" hidden style="display:none!important" class="login-card" onclick="loginPickMode(this,'lan-dedi')">
           <span class="lc-ic">🖥️</span>
           <span class="lc-tx"><span class="lc-t" data-i18n="loginLanTitle">LAN / Dedicated server</span><span class="lc-d" data-i18n="loginLanDesc">Private server · local network</span></span>
           <span class="lc-go">›</span>
