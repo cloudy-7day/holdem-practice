@@ -3,6 +3,7 @@ import { bestHand } from '../offline/engine.mjs';
 import { evaluateSpot } from './equity.mjs';
 import { sizingPlan, assessSizing } from './sizing.mjs';
 import { plainDecision, explainCall } from './plain-language.mjs';
+import { suitedAceContinuation } from './preflop-context.mjs';
 const streets={preflop:'翻牌前',flop:'翻牌',turn:'转牌',river:'河牌'};
 const actions={fold:'弃牌',check:'过牌',call:'跟注',bet:'下注',raise:'加注',allin:'全下'};
 const ranks='23456789TJQKA', suits=['♦','♥','♠','♣'];
@@ -69,6 +70,8 @@ function review(d){
  const maxTo=Number.isFinite(l.maxRaiseTo)?l.maxRaiseTo:n(c.streetCommitted)+n(c.stack);
  const canRaise=!!l.canRaise&&maxTo>=minTo;
  const s=starting(hole),score=hole.length===2&&board.length>=3?bestHand([...hole,...board]):null;
+ const suitedAce=street==='preflop'?suitedAceContinuation(c,s,e.callCost):null;
+ let suitedAceAlternative=false;
  const category=score?.[0]??0,multi=e.opponentCount>1;
  const sizePlan=sizingPlan(c,{category,opponentCount:e.opponentCount,bb,minTo,maxTo});
  let recommendedAction=facing?'fold':'check',recommendedTo;
@@ -81,8 +84,10 @@ function review(d){
   else if(!opened&&canRaise&&(limpers?s.strong:opensFrom(s,n(c.posFromButton),n(c.numPlayers)))){recommendedAction='raise';why=limpers?'前面有人跟入，这手对子或强大牌有向较差牌取值的基础，可以加注隔离。':early?'前位仍需收紧，但这手对子或同花大牌属于可开池结构，不必只等AA、KK。':'前面尚未主动入池，可以利用位置开池争取盲注；被再加注后要重新评估，不能自动跟到底。';}
   else if(!facing){recommendedAction='check';why='没有补钱要求，保留免费翻牌机会。';}
   else if(opened&&blindDefense(s,c,e,bb)){recommendedAction='call';defendingBlind=true;why=`大盲已投入，补差 ${e.callCost} 即可防守这次小开池；${s.pair?'对子可以保留摊牌价值并争取暗三条':s.suited?'同花结构能形成较强听牌和成牌':'A高或两张大牌对后位较宽开池有摊牌潜力'}，无需直接弃牌，也不必用再加注扩大底池。`;}
+  else if(suitedAce?.consider){recommendedAction='call';suitedAceAlternative=true;why=`面对后位单次小开池，你在${suitedAce.facts.heroPosition}，补 ${e.callCost}（${(e.callCost/bb).toFixed(1)} 个大盲），对开池者有效筹码 ${suitedAce.facts.effective}；尚无其他玩家跟齐这次加注。小同花A可争取坚果同花或A2345顺子，跟注与弃牌都可考虑；这只是条件化教学候选，不是求解器频率或盈利保证。只中A时仍要防踢脚被压制，后续再加注需重新评估。`;}
   else if((s.strong&&e.callCost<=6*bb&&e.callCost<=n(c.stack)*0.2)||(s.premium&&e.equity!=null&&e.threshold!=null&&e.equity>e.threshold+0.06)||(cheap&&s.playable&&!early)){recommendedAction='call';why=s.premium&&e.callCost>6*bb?'这次跟注代价较大；当前强起手牌在公开行动假设下仍支持继续，并非仅为等待后面配牌。后面遭遇更大加注时仍需重新判断。':'价格较低且有对子、强大牌或可发展的同花结构，可以继续；面对后面的再加注重新收紧。';}
   else{why=opened?`面对加注要补 ${e.callCost}（${(e.callCost/bb).toFixed(1)} 个大盲），这手${s.suited?'同花牌虽有发展潜力，但击中一对仍可能被更好踢脚压制':s.pair?'对子可能落后更高对子，不宜只为中暗三条支付大价钱':'不同花牌容易被更好踢脚压制'}；${early?'前位后面仍有人行动，继续范围应更紧':'位置有利也不代表能承受这个价格'}。`:'这手牌的高牌、连接性或位置不足，基线弃牌，把入池机会留给更好的结构。';}
+  if(defendingBlind&&suitedAce?.smallSuitedAce){suitedAceAlternative=true;why+='小同花A在这里跟注或弃牌都可考虑，不必把任何一次继续视为必须。';}
   next='进入翻牌后，先看能否形成顶对好踢脚、暗三条或真正的四张听牌；未击中又面对多人下注时减少投入。';
  }else{
   const shared=board.length===5&&score&&bestHand(board).every((v,i)=>v===score[i]);
@@ -136,8 +141,11 @@ function review(d){
  const largerBaseline=sizing.status==='large';
  const undersized=sizing.status==='small'&&recommendedAction==='raise';
  const marginal=facing&&street!=='preflop'&&e.threshold!=null&&e.equityLow!=null&&e.equityLow<=e.threshold+callSafetyMargin&&e.equityHigh>=e.threshold;
- const verdict=recommendedAction==='review'?'信息不足，不能判错':oversized?'尺寸偏大':sizeUncertain?'大额加注，尺寸需复核':largerBaseline?'尺寸偏大，需说明理由':undersized?'尺寸偏小，可调整':checkAlternative&&actual==='check'?'合理，过牌或小注均可':callAlternative&&actual==='call'?'合理，跟注诱导或价值加注均可':same?(marginal?'边缘，符合默认建议':'合理'):marginal?'边缘，默认'+actions[recommendedAction]:'需要改进';
- const severity=recommendedAction==='review'?'note':oversized?'warning':largerBaseline||sizeUncertain||undersized?'note':(checkAlternative&&actual==='check'||callAlternative&&actual==='call')?'note':marginal?'note':same?'good':'warning';
+ const conditionalAce=suitedAceAlternative&&['call','fold'].includes(actual);
+ const incompleteAce=suitedAce?.smallSuitedAce&&!suitedAce.facts.complete&&recommendedAction==='fold'&&actual==='call'&&e.callCost<=4*bb&&n(c.stack)>=40*bb;
+ const debatableAce=suitedAce?.smallSuitedAce&&recommendedAction==='fold'&&actual==='call'&&e.callCost<=4*bb&&n(c.stack)>=40*bb&&suitedAce.facts.raises<=1&&(suitedAce.facts.effective==null||suitedAce.facts.effective>=suitedAce.requiredEffective);
+ const verdict=incompleteAce?'信息不足，倾向弃牌但不能判错':debatableAce?'这手有取舍，我更倾向弃牌':conditionalAce?'边缘，跟注或弃牌均可考虑':recommendedAction==='review'?'信息不足，不能判错':oversized?'尺寸偏大':sizeUncertain?'大额加注，尺寸需复核':largerBaseline?'尺寸偏大，需说明理由':undersized?'尺寸偏小，可调整':checkAlternative&&actual==='check'?'合理，过牌或小注均可':callAlternative&&actual==='call'?'合理，跟注诱导或价值加注均可':same?(marginal?'边缘，符合默认建议':'合理'):marginal?'边缘，默认'+actions[recommendedAction]:'需要改进';
+ const severity=incompleteAce||debatableAce||conditionalAce?'note':recommendedAction==='review'?'note':oversized?'warning':largerBaseline||sizeUncertain||undersized?'note':(checkAlternative&&actual==='check'||callAlternative&&actual==='call')?'note':marginal?'note':same?'good':'warning';
  // Metrics, ranges and draws have their own UI sections; keep the coaching prose compact.
  reason=(street==='preflop'?`${pos}的${s.label}。`:`${e.madeHand}，${multi?'多人':'单挑'}底池。`)+why;
  const suitCount=[0,0,0,0];[...hole,...board].forEach(c=>suitCount[Math.floor(c/13)]++);
@@ -157,15 +165,15 @@ function review(d){
  if(oversized&&street==='preflop')reason+='开池过大使较差牌更容易弃牌，继续范围更强。';
  if(postLarge)reason+=`本次加注增量 ${raiseIncrement}，约为跟注后底池的 ${(raiseIncrement/Math.max(1,n(l.pot)+e.callCost)).toFixed(1)} 倍；${category<=1?'这类中等或较弱牌用大注容易逼走较差牌、留下更强继续范围，小注或控池更合适':'大尺寸需要对手愿用较差强牌跟注，仅凭牌强还不能证明这个尺寸更好'}。`;
  if(recommendedAction==='raise'&&street!=='preflop')next=street==='river'?'若遭再加注，重新比较对手更强的价值牌，避免因已下注而机械跟到底。':'下一街若完成明显顺子或同花，先降速核对对手范围；安全牌上可继续向上述较差成牌取值。';
- const lead=recommendedAction==='review'?'暂不强判跟注或弃牌。':recommendedAction==='raise'?(n(c.currentBet)===0?`建议下注 ${recommendedTo} 筹码。`:`建议加注到 ${recommendedTo} 筹码（本次再投 ${recommendedTo-n(c.streetCommitted)} 筹码）。`):`建议${actions[recommendedAction]}${recommendedAction==='call'?'：再投入 '+e.callCost+' 筹码':''}。`;
+ const lead=conditionalAce?`可以跟注：再投入 ${e.callCost} 筹码；弃牌也可考虑。`:recommendedAction==='review'?'暂不强判跟注或弃牌。':recommendedAction==='raise'?(n(c.currentBet)===0?`建议下注 ${recommendedTo} 筹码。`:`建议加注到 ${recommendedTo} 筹码（本次再投 ${recommendedTo-n(c.streetCommitted)} 筹码）。`):`建议${actions[recommendedAction]}${recommendedAction==='call'?'：再投入 '+e.callCost+' 筹码':''}。`;
  // Compact, decision-specific copy for the main review; detailed reasoning stays available.
- const briefReason=plainDecision({context:c,evaluation:e,starting:s,score,category,street,recommendedAction,actual,defendingBlind,noFutureBetting,marginal,oversized,sizeUncertain,undersized,checkAlternative,callAlternative});
+ const briefReason=plainDecision({context:c,evaluation:e,starting:s,score,category,street,recommendedAction,actual,defendingBlind,noFutureBetting,marginal,oversized,sizeUncertain,undersized,checkAlternative,callAlternative,conditionalAce,preflopContinuation:suitedAce});
  let nextAdvice='';
  if(severity==='warning'||sizeUncertain)nextAdvice=lead;
  else if(!noFutureBetting&&street!=='preflop'&&street!=='river'&&actual!=='fold'&&e.draws?.length){
   const draw=e.draws.find(x=>x.outs>0);if(draw)nextAdvice=`${street==='flop'?'转牌':'河牌'}关注 ${draw.cards.join('、')}；未中且再次面对大注，优先弃牌。`;
  }
- return {street,action:d.action,title:lead.replace(/。$/,''),severity,briefReason,callExplanation:explainCall(c,e.callCost),nextAdvice,reason,suggestion:next,verdict,recommendedAction,sizing:['bet','raise','allin','call'].includes(d.action)||recommendedAction==='raise'?sizing:null,...(recommendedTo==null?{}:{recommendedTo}),equity:e.equity,equityLow:e.equityLow,equityHigh:e.equityHigh,threshold:e.threshold,callEV:e.callEV,ranges:e.ranges,draws:e.draws,assumptions:e.assumptions,sources:teachingSources,evidence:[`${label}｜手牌 ${cards(hole)}｜当时公共牌 ${cards(board)}`,`位置 ${pos}，剩余 ${n(c.stack)}，本街已投入 ${n(c.streetCommitted)}`,`行动前底池 ${n(l.pot)}，跟注 ${e.callCost}；实际${actions[d.action]||d.action}，支付 ${n(d.paid)}，本街总投入 ${n(d.totalStreetBet)}`]};
+ return {street,preflopContinuation:suitedAce,conditionalAce,action:d.action,title:lead.replace(/。$/,''),severity,briefReason,callExplanation:explainCall(c,e.callCost),nextAdvice,reason,suggestion:next,verdict,recommendedAction,sizing:['bet','raise','allin','call'].includes(d.action)||recommendedAction==='raise'?sizing:null,...(recommendedTo==null?{}:{recommendedTo}),equity:e.equity,equityLow:e.equityLow,equityHigh:e.equityHigh,threshold:e.threshold,callEV:e.callEV,ranges:e.ranges,draws:e.draws,assumptions:e.assumptions,sources:teachingSources,evidence:[`${label}｜手牌 ${cards(hole)}｜当时公共牌 ${cards(board)}`,`位置 ${pos}，剩余 ${n(c.stack)}，本街已投入 ${n(c.streetCommitted)}`,`行动前底池 ${n(l.pot)}，跟注 ${e.callCost}；实际${actions[d.action]||d.action}，支付 ${n(d.paid)}，本街总投入 ${n(d.totalStreetBet)}`]};
 }
 export function analyzeHand(report={}){
  const decisions=report.decisions||[], heroId=report.heroId??1;
