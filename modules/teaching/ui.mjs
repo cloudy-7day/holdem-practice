@@ -40,10 +40,16 @@ function playerCard(p,report,showNet=true){
 function plainVerdict(text){return ({'尺寸偏大':'这次下得有点大','尺寸偏小，可调整':'这次可以多下一点','大额加注，尺寸需复核':'下这么大，要有更充分的理由','尺寸偏大，需说明理由':'这次下得较大，想想谁还会跟','合理，过牌或小注均可':'过牌可以，下小注也可以','合理，跟注诱导或价值加注均可':'先跟着可以，加注也可以','边缘，符合默认建议':'这手不好判断，这样打可以考虑'})[text]||text?.replace('边缘，默认','这手不好判断，我更倾向');}
 function decision(r,i){
  const item=node('article',undefined,`tc-decision ${r.severity||'note'}`);
- item.append(node('span',`${i+1} · ${streets[r.street]||r.street} · 你选择${words[r.action]||r.action}`,'tc-eyebrow'),node('h3',plainVerdict(r.verdict)||'决策回看'));
- item.append(node('p',r.title,'tc-suggestion'));
- if(r.callExplanation)item.append(node('p',r.callExplanation,'tc-call-context'));
- item.append(node('p',r.briefReason||r.reason));
+ item.append(node('span',`${i+1} · ${streets[r.street]||r.street} · 你选择${words[r.action]||r.action}${r.actualPaid>0?`，投入 ${r.actualPaid} 筹码`:''}`,'tc-eyebrow'),node('h3',plainVerdict(r.verdict)||'决策回看'));
+ const plan=r.actionPlan;
+ if(r.spotLabel)item.append(node('p',r.spotLabel,'tc-spot-label'));
+ item.append(node('p',plan?.actionText||r.title,'tc-suggestion'));
+ item.append(node('p',plan?.reason||r.briefReason||r.reason,'tc-action-reason'));
+ if(plan?.sizeText)item.append(node('p',plan.sizeText,'tc-action-size'));
+ if(plan?.nextStep)item.append(node('p',plan.nextStep,'tc-action-next'));
+ const detail=node('details',undefined,'tc-decision-details');
+ detail.append(node('summary','展开金额与判断细节'));
+ if(r.callExplanation)detail.append(node('p',r.callExplanation,'tc-call-context'));
  if(r.sizing&&!(r.sizing.status==='fixed'&&r.callExplanation)){
   const size=node('section',undefined,'tc-sizing');size.setAttribute('aria-label','下注大小分析');
   size.append(node('strong',`下注大小 · ${r.sizing.label}`));
@@ -52,8 +58,10 @@ function decision(r,i){
   if(r.sizing.reason)size.append(node('p',r.sizing.reason));
   if(r.sizing.basisText)size.append(node('p',r.sizing.basisText,'tc-size-basis'));
   if(r.sizing.boardReason)size.append(node('p',r.sizing.boardReason,'tc-size-board'));
-  item.append(size);
+  detail.append(size);
  }
+ if(r.reason)detail.append(node('p',r.reason,'tc-analysis-evidence'));
+ item.append(detail);
  return item;
 }
 function fillAnalysis(report,analysis,container){
