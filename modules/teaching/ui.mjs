@@ -71,8 +71,8 @@ function fillAnalysis(report,analysis,container){
  container.append(node('p','这些建议只看你当时知道的牌和下注，猜不到对手的底牌。赢了不一定打对，输了也不一定打错。','tc-analysis-note'));
 }
 function settlementView(report){
- const box=node('section',undefined,'tc-settlement');const settlement=report.settlement;
- box.append(node('h2','这手为什么这样结算'),node('p',settlement?.summary||'本手已结束。'));
+ const box=node('details',undefined,'tc-settlement');const settlement=report.settlement;
+ box.append(node('summary','这手为什么这样结算'),node('p',settlement?.summary||'本手已结束。'));
  const name=id=>report.players?.find(p=>p.id===id)?.name||String(id);
  for(const h of settlement?.winningHands||[]){
   if(!h.straightRanks)continue;

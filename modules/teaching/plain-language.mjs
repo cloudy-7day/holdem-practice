@@ -17,12 +17,11 @@ export function explainCall(c,callCost){
  const fullCost=haveCommitted&&Number.isFinite(c.currentBet)?Math.max(0,c.currentBet-committed):null;
  const last=(c.publicHistory||[]).findLast(a=>(a.street||a.gameState)===street&&a.totalStreetBet===c.currentBet&&(a.isAggressive||['raise','bet'].includes(a.action)));
  const bettor=last&&(c.publicPlayers||[]).find(p=>p.id===last.playerId)?.name;
- let text=fullCost!=null?`${bettor||'对方'}这一轮已经下到 ${c.currentBet} 筹码；你本轮已经投入 ${committed} 筹码。`:'';
+ let text=fullCost!=null?`${bettor||'对方'}这一轮已经下到 ${c.currentBet} 筹码。`:'';
  if(fullCost!=null&&fullCost>callCost){
-  text+=`还差 ${fullCost} 筹码才能跟齐，但你${haveStack?'只有 '+stack+' 筹码':'的筹码不够'}。如果选择跟注，就要全下 ${callCost} 筹码${haveCommitted?'，本轮合计 '+(committed+callCost)+' 筹码':''}；只能争取自己投入所对应的那部分筹码。`;
- }else text+=`跟注就是这次额外投入 ${callCost} 筹码${haveCommitted?'，本轮合计 '+(committed+callCost)+' 筹码':''}。`;
- if(Number.isFinite(c.legal?.pot))text+=`行动前桌上共有 ${c.legal.pot} 筹码。`;
- if(haveStack){text+=`你当时手里有 ${stack} 筹码，跟完还剩 ${Math.max(0,stack-callCost)} 筹码。`;
+  text+=`还差 ${fullCost} 筹码才能跟齐，但你${haveStack?'只有 '+stack+' 筹码':'的筹码不够'}。跟注就要全下 ${callCost} 筹码，只能争取自己投入所对应的那部分筹码。`;
+ }else text+=`跟注需要额外投入 ${callCost} 筹码。`;
+ if(haveStack&&!(fullCost!=null&&fullCost>callCost)){
   if(callCost===stack)text+='这会用掉你剩下的全部筹码。';
   else if(callCost>=stack/2)text+='这会用掉你手里至少一半的筹码，不能只为了再看一张就跟。';
  }
