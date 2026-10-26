@@ -6639,7 +6639,7 @@ const App = (() => {
       if (!S.myName) { setStatus(t('enterNick'), 'err', null, { local: true }); return; }
       // Prépare l'avatar-upload du choix courant AVANT l'Init.
       try { if (window.refreshMyAvatar) window.refreshMyAvatar(); } catch(e) {}
-      if (S.myName.length < 3) { setStatus(t('nickTooShort'), 'err', null, { local: true }); return; }
+      if (S.myName.length < 3 && !window.PokerRoom) { setStatus(t('nickTooShort'), 'err', null, { local: true }); return; }
       if (!_off && (!effProxyUrl || !host)) { setStatus(t('fillFields'), 'err', null, { local: true }); return; }
 
       if (!_off && loginMode === 'auth' && (!$('pass') || !$('pass').value.trim())) {
