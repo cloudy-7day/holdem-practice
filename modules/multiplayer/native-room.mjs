@@ -1,4 +1,5 @@
 import {createRoomSocket} from './native-socket.mjs';
+import {requestJSON} from './network.mjs';
 
 // Friends and solo practice share the entire PokerTH renderer and action bar.
 // Only the source of authoritative game messages changes.
@@ -22,11 +23,9 @@ async function startRoom(){
  let base='',socket=null,state=null,lastPacket=null,connected=false,pending=false;
  const text=(value,error=false)=>{label.textContent=value;bar.classList.toggle('error',error);};
  async function request(path,body){
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
-  try{
-   const response=await fetch(`${base}/api/rooms/${encodeURIComponent(code)}${path}`,{method:body?'POST':'GET',cache:'no-store',signal:controller.signal,headers:{Authorization:`Bearer ${token}`,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,requestId:crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`})}:{})});
-   const result=await response.json();if(!response.ok)throw new Error(result.error||'房间暂时无法连接');return result.snapshot;
-  }catch(e){if(e.name==='AbortError')throw new Error('连接超时，请重试');throw e;}finally{clearTimeout(timeout);}
+  const result=await requestJSON(`${base}/api/rooms/${encodeURIComponent(code)}${path}`,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,requestId:crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`})}:{})});
+  if(body?.type!=='leave'&&(!result?.snapshot||result.snapshot.code!==code||!Array.isArray(result.snapshot.players)))throw new Error('房间服务返回的数据不完整，请重试。');
+  return result?.snapshot;
  }
  function update(){
   if(!state)return;
@@ -57,10 +56,8 @@ async function startRoom(){
  window.addEventListener('pagehide',()=>{clearInterval(timer);socket?.close();});
  window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
  try{
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
-  let response;try{response=await fetch(new URL('multiplayer-config.json',location.href),{cache:'no-store',signal:controller.signal});}finally{clearTimeout(timeout);}
-  if(!response.ok)throw new Error('无法读取房间服务配置');const config=await response.json();
-  if(typeof config.apiBase!=='string')throw new Error('房间服务配置不正确');base=config.apiBase.replace(/\/$/,'');
+  const config=await requestJSON(new URL('multiplayer-config.json',location.href));
+  if(typeof config?.apiBase!=='string')throw new Error('房间服务配置不正确');base=config.apiBase.replace(/\/$/,'');
   state=await request('');if(state.phase==='waiting'){location.replace(lobby);return;}
   await import('../offline/index.mjs');
   const deadline=Date.now()+30000;while(!window.App?.connect||document.readyState==='loading'||!window._appConfigSettled){if(Date.now()>deadline)throw new Error('牌桌还没加载好，请刷新重试');await new Promise(r=>setTimeout(r,100));}
