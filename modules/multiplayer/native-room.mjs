@@ -1,4 +1,5 @@
 import {createRoomSocket} from './native-socket.mjs';
+import {createFriendInputGuard} from './friend-input-guard.mjs';
 import {requestJSON} from './network.mjs';
 import {mountRoomSocial} from './social.mjs';
 
@@ -24,6 +25,8 @@ async function startRoom(){
  bar.append(label,retry,leave);document.querySelector('#s-game > .header').after(bar);
  const socialHost=document.createElement('div');socialHost.id='friend-social';bar.after(socialHost);
  let base='',socket=null,state=null,lastPacket=null,connected=false,pending=false,social=null,actionPending=null;
+ const guard=createFriendInputGuard({getTurn:()=>state?.turn,getHero:()=>state?.heroId,getKeys:()=>window._keyBindings?.()||{}});
+ for(const type of ['keydown','keyup','pointerdown','click'])document.addEventListener(type,event=>{if(!guard(event)){event.preventDefault();event.stopImmediatePropagation();}},true);
  const text=(value,error=false)=>{label.textContent=value;bar.classList.toggle('error',error);};
  async function request(path,body){
   const result=await requestJSON(`${base}/api/rooms/${encodeURIComponent(code)}${path}`,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,requestId:crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`})}:{})});
@@ -51,7 +54,7 @@ async function startRoom(){
   }
   lastPacket=packet;window.dispatchEvent(new CustomEvent('pth-teaching',{detail:packet}));loading.remove();update();
  }
- async function sendCommand(command){const marker=command.type==='action'?{started:Date.now()}:null;if(marker){actionPending=marker;update();}try{return await request('/command',command);}finally{if(marker&&actionPending===marker){actionPending=null;update();}}}
+ async function sendCommand(command){const marker=command.type==='action'?{started:Date.now(),turnId:command.turnId}:null;if(marker){actionPending=marker;update();}try{return await request('/command',command);}finally{if(marker&&actionPending===marker){actionPending=null;update();}}}
  async function voiceRequest(id,blob,durationMs){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
   try{
@@ -87,6 +90,8 @@ async function startRoom(){
   window.PokerOffline.createSocket=()=>{
    socket=createRoomSocket({snapshot:state,sendCommand,fetchSnapshot:()=>request(''),publish,onLeave:()=>{try{localStorage.removeItem(key);}catch{}location.assign(home);},onStatus:status=>{
     connected=status.connected&&!status.error;state=status.snapshot||state;retry.hidden=!status.error;
+    if(actionPending&&state.turn?.turnId!==actionPending.turnId)actionPending=null;
+    if(window.PthState){window.PthState._preAction='';window.PthState._playingMode=0;}
     social?.update(state.socialMessages||[]);
     if(status.error)text(`房间 ${code} · ${status.error} · 自动重连中`,true);else update();
    }});return socket;

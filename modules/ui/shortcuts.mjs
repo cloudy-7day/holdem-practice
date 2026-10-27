@@ -106,6 +106,9 @@ document.addEventListener('keydown', function(e) {
   var _typing = (tag === 'input' || tag === 'textarea' || e.target.isContentEditable);
   var _betFocus = _typing && e.target.id === 'raise-amt';
   if (_typing && !_betFocus) return;
+  // A focused social/leave/settings button must keep its own keyboard action,
+  // rather than Space/Enter also triggering the global poker shortcut.
+  if (document.body.classList.contains('friend-table') && e.target.closest?.('button, a') && !e.target.closest('#g-actions .btn-action')) return;
   if (_betFocus) {
     var _bk = (e.key || '').toLowerCase();
     if (!(/^f[1-9]$|^f1[0-2]$/.test(_bk) || e.altKey || _bk === 'enter'

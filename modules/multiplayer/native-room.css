@@ -7,3 +7,4 @@
 .friend-table #s-game .game-area{background-color:#0b251c}
 .friend-table #chat-toggle-btn,.friend-table #react-toggle-btn{display:none!important}
 @media(max-width:760px),(max-width:1000px) and (max-height:500px){#friend-bar{font-size:11px;padding:2px 8px;min-height:30px}#friend-bar button{padding:2px 9px;min-height:28px}.friend-table #s-game>.header{min-height:44px}}
+.friend-table #g-actions .mode-sel-wrap { display: none !important; }
