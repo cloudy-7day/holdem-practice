@@ -2,6 +2,7 @@
 #friend-loading a{color:inherit}#friend-loading button,#friend-bar button{font:inherit;color:#eadcae;border:1px solid #657b70;background:#18382c;border-radius:7px;padding:5px 12px;cursor:pointer}
 #friend-bar{display:flex;align-items:center;gap:8px;min-height:30px;padding:3px 14px;background:#142c23;color:#d3dfd5;font:12px/1.4 system-ui;flex-shrink:0;box-sizing:border-box}
 #friend-status{flex:1;min-width:0}#friend-bar.error{color:#ffc5ba}#friend-bar [hidden]{display:none}
+#friend-social{flex-shrink:0;min-width:0}
 .friend-table #g-name{font-size:14px}
 .friend-table #s-game .game-area{background-color:#0b251c}
 .friend-table #chat-toggle-btn,.friend-table #react-toggle-btn{display:none!important}

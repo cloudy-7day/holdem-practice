@@ -1392,7 +1392,54 @@ function beatLevel() {
   } catch (e) { return null; }
 }
 
+// Original, locally synthesized teaching-table music. No network or autoplay.
+// Sixteen-second pentatonic phrase with soft attacks; every voice reaches zero
+// at the loop boundary, keeping the repeating buffer free of clicks.
+let teachingCtx, teachingGain, teachingBuffer, teachingSource, teachingIntent=false, teachingGeneration=0, teachingError='';
+function isTeachingPlaying() { return teachingIntent; }
+function teachingVolume() { try { return Math.max(0,Math.min(1,Number(localStorage.getItem('pth_teaching_music_vol') ?? '.22')))||0; } catch { return .22; } }
+function setTeachingVolume(v) {
+  v=Math.max(0,Math.min(1,Number(v)||0));
+  try { localStorage.setItem('pth_teaching_music_vol',String(v)); } catch {}
+  if(teachingGain) teachingGain.gain.setTargetAtTime(v,teachingCtx.currentTime,.08);
+}
+function teachingChanged() { window.dispatchEvent(new CustomEvent('pth-music-settings')); }
+function stopTeaching() { teachingGeneration++; teachingIntent=false; if(teachingSource)teachingSource.stop(); teachingSource=null; teachingChanged(); }
+window.addEventListener('pagehide',stopTeaching);
+async function toggleTeaching() {
+  const generation=++teachingGeneration;
+  if(teachingIntent) { teachingIntent=false; if(teachingSource)teachingSource.stop(); teachingSource=null; teachingChanged(); return; }
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC) return;
+  teachingError='';teachingIntent=true; teachingChanged();
+  try {
+    if(!teachingCtx) teachingCtx=new AC();
+    const resumed=teachingCtx.resume();
+    if(!teachingBuffer) {
+      teachingGain=teachingCtx.createGain(); teachingGain.connect(teachingCtx.destination);
+      const rate=teachingCtx.sampleRate, duration=16;
+      teachingBuffer=teachingCtx.createBuffer(1,rate*duration,rate);
+      const data=teachingBuffer.getChannelData(0);
+      const notes=[60,64,67,71,69,67,64,62,57,60,64,67,62,64,59,55];
+      for(let n=0;n<notes.length;n++) {
+        const hz=440*Math.pow(2,(notes[n]-69)/12), start=n*rate;
+        for(let i=0;i<rate;i++) {
+          const t=i/rate, envelope=Math.sin(Math.PI*t)**2;
+          data[start+i]+=.14*envelope*(Math.sin(2*Math.PI*hz*t)+.25*Math.sin(4*Math.PI*hz*t));
+        }
+      }
+    }
+    // resume is invoked in the click handler's call stack, before any await.
+    await resumed;
+    if(generation!==teachingGeneration||!teachingIntent) return;
+    teachingGain.gain.value=teachingVolume();
+    teachingSource=teachingCtx.createBufferSource(); teachingSource.buffer=teachingBuffer;
+    teachingSource.loop=true; teachingSource.connect(teachingGain); teachingSource.start(); teachingChanged();
+  } catch { if(generation===teachingGeneration){teachingError='背景音乐启动失败，请再次点击或检查浏览器声音权限';teachingIntent=false;teachingSource=null;teachingChanged();} }
+}
+
 const Music = {
+  toggleTeaching, stopTeaching, isTeachingPlaying, getTeachingError:()=>teachingError, getTeachingVolume:teachingVolume, setTeachingVolume,
   loadManifest: loadManifest,
   refresh: refresh,
   tracks: tracks,

@@ -16,3 +16,17 @@ body.tc-active .tc-panel{display:flex;gap:8px;align-items:flex-start;top:88px;ri
 }
 /* Match the table controls' finger target size. */
 @media(max-width:760px),(max-height:500px) and (pointer:coarse){html body .tc-experience-flyout>summary{box-sizing:border-box;min-height:44px;display:flex;align-items:center;font-size:12px;padding:6px 8px}}
+/* Two independent note controls; targets stay comfortable on touch screens. */
+.tc-audio-controls{display:flex;gap:4px;align-items:center;flex-shrink:0}
+.tc-audio-controls .tc-audio-icon{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid #859c9366;border-radius:9px;background:#172824;color:#a8b4ad;font:25px/1 system-ui;cursor:pointer;position:relative}
+.tc-audio-controls .tc-audio-icon[aria-pressed=true]{color:#edda96;background:#31473b;border-color:#b29d60}
+.tc-audio-controls .tc-audio-icon[aria-pressed=false]::after{content:'';position:absolute;width:23px;height:2px;background:currentColor;transform:rotate(-45deg);box-shadow:0 0 2px #172824}
+.tc-audio-controls .tc-audio-icon:focus-visible{outline:2px solid #eed391;outline-offset:3px}
+.tc-audio-controls .tc-audio-icon:disabled{opacity:.45;cursor:wait}
+body.tc-active .tc-panel{flex-wrap:wrap;max-width:calc(100vw - 116px)}
+@media(max-width:600px){body.tc-active .tc-panel{max-width:calc(100vw - 95px)}.tc-audio-controls{gap:3px}}
+
+/* Keep the table toolbar compact while retaining 44px tap targets. */
+#tc-header-audio{display:inline-flex;vertical-align:middle}
+.tc-experience-flyout>summary{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:44px;height:44px;min-height:44px;padding:0;font-size:23px;line-height:1}
+@media(max-width:760px),(max-height:500px) and (pointer:coarse){html body .tc-experience-flyout>summary{padding:0;font-size:23px}}
