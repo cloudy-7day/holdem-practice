@@ -12,7 +12,7 @@ function update(){
   document.documentElement.dataset.phoneLayout=mode;
   const hint=document.getElementById('phone-orientation');
   if(hint){
-   const text=mode==='landscape'?'当前横屏 · 更方便看全桌和下注；读复盘可转回竖屏。':'当前竖屏 · 适合单手操作和读复盘；横屏看全桌更方便。';
+   const text=mode==='landscape'?'建议转回竖屏，获得更完整的牌桌和操作空间。':'';
    if(hint.textContent!==text)hint.textContent=text;
   }
  }

@@ -1,7 +1,7 @@
 /* Teaching-only small-screen layout. The original desktop geometry stays intact. */
 @media (max-width:760px), (max-width:1000px) and (max-height:500px) {
  html:has(body.tc-active),body.tc-active{height:100%;min-height:100%;overflow:hidden}
- body.tc-active #s-game{height:100dvh!important;min-height:0!important;overflow:hidden!important}
+ body.tc-active #s-game{height:100svh!important;min-height:0!important;overflow:hidden!important}
  body.tc-active #s-game .game-area{position:relative!important;flex:1!important;min-height:0!important;padding:0!important;overflow:hidden!important}
  body.tc-active #g-table-zone{position:absolute!important;inset:48px 0 var(--tc-action-height,176px)!important;width:auto!important;height:auto!important;overflow:visible!important;min-height:0!important}
  body.tc-active #g-zoom-layer{position:absolute!important;inset:0!important;transform:none!important}
@@ -52,13 +52,6 @@
  body.tc-active .tc-speech{max-width:150px!important;font-size:11px!important;padding:6px 8px!important}
 }
 @media(max-width:360px){body.tc-active #g-seats .seat-name{font-size:10px!important}body.tc-active #g-comm .pk{width:35px!important;height:49px!important}}
-@media(max-width:1000px) and (max-height:500px) and (orientation:landscape){
- body.tc-active #g-table-zone{right:306px!important;bottom:0!important;top:48px!important}
- html body.tc-active #s-game#s-game#s-game .my-zone{left:auto!important;right:0!important;width:300px!important;max-height:calc(100dvh - 85px)!important;overflow-y:auto!important}
- body.tc-active #g-seats .seat{height:55px!important}body.tc-active #g-seats .seat-plate{height:51px!important}
- body.tc-active #g-comm{top:calc(54% + 35px)!important}body.tc-active #g-potbar{top:calc(54% - 9px)!important}
- body.tc-active #g-seats .seat.me{left:50%!important;bottom:0!important;height:60px!important}body.tc-active #g-seats .seat.me .seat-plate{height:60px!important}
-}
 @media(max-width:760px){body.tc-active #g-comm{top:calc(50% + 35px)!important}body.tc-active #g-potbar{top:calc(50% - 5px)!important}}
 @media (max-width:760px), (max-width:1000px) and (max-height:500px){
  body.tc-active #s-game .game-area{width:100%!important;max-width:none!important}
@@ -71,7 +64,6 @@
  html body.tc-active #s-game#s-game#s-game .my-zone .raise-slider{width:0!important;flex:1!important;min-width:0!important}
  body.tc-active #g-seats .seat-self-strip{display:none!important}
 }
-@media(max-width:1000px) and (max-height:500px) and (orientation:landscape){html body.tc-active #s-game#s-game#s-game .my-zone .mid-row .btn-allin{flex:1!important}html body.tc-active #s-game#s-game#s-game .my-zone .mid-row .pct-row{flex:3!important}}
 
 @media (max-width:760px), (max-width:1000px) and (max-height:500px){body.tc-active #g-seats .seat.folded .seat-plate{opacity:1!important;filter:none!important}}
 @media(max-width:360px){body.tc-active #g-potbar[data-street]::after{bottom:calc(100% - 2px)!important;font-size:9px!important;letter-spacing:0!important}}
@@ -87,3 +79,9 @@
 }
 /* The decorative deck otherwise covers the top edge of community cards. Deal flights remain enabled. */
 @media (max-width:760px), (max-width:1000px) and (max-height:500px){body.tc-active #g-potbar[data-street]::before{display:none!important}}
+
+/* A short phone viewport scrolls through the same portrait table. */
+@media (max-width:1000px) and (max-height:500px) and (pointer:coarse){
+ html:has(body.tc-active),body.tc-active{height:auto;min-height:100%;overflow:auto}
+ body.tc-active #s-game{height:720px!important;min-height:720px!important;overflow:visible!important}
+}

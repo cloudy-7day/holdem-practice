@@ -1,8 +1,8 @@
 #phone-orientation{display:none;font:12px/1.45 system-ui,-apple-system,sans-serif;color:#d8cea7;background:#182c23;border:1px solid #d6bc7333;border-radius:8px;padding:7px 12px}
-html[data-phone-layout="portrait"] #phone-orientation,html[data-phone-layout="landscape"] #phone-orientation{display:block}
+html[data-phone-layout="landscape"] #phone-orientation{display:block}
 .mp-page #phone-orientation{max-width:1000px;margin:8px max(12px,env(safe-area-inset-left)) 0;text-align:center}
 body:not(.mp-page) #phone-orientation{position:fixed;left:12px;right:12px;bottom:calc(45px + env(safe-area-inset-bottom));z-index:1050;text-align:center;pointer-events:none}
-body.tc-active #phone-orientation{display:none!important}
+body.tc-active #phone-orientation{top:4px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:90vw;z-index:1100}
 @media(min-width:1040px){.mp-page #phone-orientation{margin-left:auto;margin-right:auto}}
 html[data-phone-layout="landscape"] .mp-page #phone-orientation{font-size:11px;padding:3px 8px;margin-top:3px}
 .mp-page #phone-orientation{margin-left:max(12px,env(safe-area-inset-left));margin-right:max(12px,env(safe-area-inset-right))}

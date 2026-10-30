@@ -4,3 +4,8 @@
 .room-social .rs-mic{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;min-width:48px}
 .rs-playback{display:block;width:min(100%,300px);height:44px;margin:6px 0}
 .rs-emoji-toggle{position:relative}.rs-unread{position:absolute;right:-3px;top:-3px;min-width:18px;padding:1px 4px;border-radius:12px;background:#e6c97a;color:#10271f;font:11px/16px system-ui}
+.room-social{position:relative;z-index:550}.room-social .rs-panel{position:absolute;top:100%;left:0;right:0;background:#142c23;box-shadow:0 8px 20px #0007;border-bottom:1px solid #657b70}
+body.friend-table:has(.rs-panel:not([hidden])) .tc-panel{visibility:hidden}
+
+/* Keep transient status and recovery controls from changing table height. */
+.rs-toolbar{position:relative}.room-social .rs-status{position:absolute;left:0;bottom:100%;width:min(75vw,220px);max-height:44px;overflow:hidden;line-height:1.2}.room-social .rs-unlock{position:absolute;left:0;bottom:100%;z-index:30;white-space:nowrap;padding:0 8px}.room-social .rs-unlock:not([hidden])+.rs-status{bottom:calc(100% + 44px);background:#142c23;z-index:30}

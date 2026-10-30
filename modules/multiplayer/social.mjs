@@ -6,7 +6,7 @@ export function mountRoomSocial({container, sendEmoji, sendVoice, loadVoice, her
   const root = document.createElement('section');
   root.className = 'room-social';
   root.setAttribute('aria-label', '牌桌互动');
-  root.innerHTML = `<div class="rs-toolbar"><button type="button" class="rs-emoji-toggle" aria-expanded="false" aria-label="发送表情">☺</button><button type="button" class="rs-mic" aria-expanded="false" aria-label="按住说话，松手预览，确认后发送">🎙</button><span class="rs-status" role="status" aria-live="polite"></span></div><div class="rs-panel" hidden><div class="rs-panel-head"><strong>牌桌互动</strong><button type="button" class="rs-close" aria-label="关闭互动面板">×</button></div><div class="rs-emojis" hidden></div><div class="rs-recorder" hidden><p class="rs-hint">按住麦克风说话，松手预览，确认后发送。最长 8 秒；也可点击开始 / 停止录音。</p><div class="rs-record-actions"><button type="button" class="rs-start">开始录音</button><button type="button" class="rs-stop" hidden>停止录音</button><button type="button" class="rs-send" hidden>发送语音</button><button type="button" class="rs-cancel" hidden>取消</button></div><audio class="rs-preview" controls hidden preload="none"></audio></div><ol class="rs-feed" aria-label="最近互动"></ol></div>`;
+  root.innerHTML = `<div class="rs-toolbar"><button type="button" class="rs-emoji-toggle" aria-expanded="false" aria-label="发送表情">☺</button><button type="button" class="rs-mic" aria-expanded="false" aria-label="按住说话，松手发送">🎙</button><button type="button" class="rs-unlock" aria-label="播放收到的语音" hidden>播放语音</button><span class="rs-status" role="status" aria-live="polite"></span></div><div class="rs-panel" hidden><div class="rs-panel-head"><strong>牌桌互动</strong><button type="button" class="rs-close" aria-label="关闭互动面板">×</button></div><div class="rs-emojis" hidden></div><div class="rs-recorder" hidden><p class="rs-hint">按住麦克风说话，松手发送。最长 8 秒；也可点击开始 / 停止录音。</p><div class="rs-record-actions"><button type="button" class="rs-start">开始录音</button><button type="button" class="rs-stop" hidden>停止录音</button><button type="button" class="rs-send" hidden>发送语音</button><button type="button" class="rs-cancel" hidden>取消</button></div><audio class="rs-preview" controls hidden preload="none"></audio></div><ol class="rs-feed" aria-label="最近互动"></ol></div>`;
   container.append(root);
   const $ = s => root.querySelector(s);
   const panel = $('.rs-panel'), status = $('.rs-status'), preview = $('.rs-preview');
@@ -30,7 +30,7 @@ export function mountRoomSocial({container, sendEmoji, sendVoice, loadVoice, her
     $('.rs-start').hidden = false; $('.rs-start').disabled = !supported;
     for (const s of ['.rs-stop','.rs-send','.rs-cancel']) $(s).hidden = true;
   }
-  function close() { reset(); stopPlayback(); panel.hidden = true; $('.rs-mic').setAttribute('aria-expanded','false'); $('.rs-emoji-toggle').setAttribute('aria-expanded','false'); }
+  function close() { reset(); panel.hidden = true; $('.rs-mic').setAttribute('aria-expanded','false'); $('.rs-emoji-toggle').setAttribute('aria-expanded','false'); }
   function open(mode) {
     reset(); panel.hidden = false;
     unread = 0; badge.hidden = true;
@@ -44,7 +44,7 @@ export function mountRoomSocial({container, sendEmoji, sendVoice, loadVoice, her
   mic.onclick = e => { if (e.detail === 0) open('voice'); };
   mic.onpointerdown = e => {
     if (!e.isPrimary || e.button !== 0 || busy) return;
-    e.preventDefault(); open('voice');
+    e.preventDefault();
     if (!supported) return;
     startRecording(); heldPointer = e.pointerId;
     try { mic.setPointerCapture(e.pointerId); } catch {}
@@ -94,52 +94,96 @@ export function mountRoomSocial({container, sendEmoji, sendVoice, loadVoice, her
         $('.rs-stop').hidden = true;
         if (oversized || !bytes) { reset(); say(oversized ? '录音超过大小限制，请重新录制更短语音。' : '没有录到声音，请重试。'); return; }
         draft = new Blob(chunks, {type:current.mimeType || chunks[0]?.type || 'audio/webm'});
-        draftURL = URL.createObjectURL(draft); preview.src = draftURL; preview.hidden = false;
-        $('.rs-send').hidden = false; say('录音完成，可试听后发送。');
+        if (duration < 100) { reset(); say('录音太短，请按住说话。'); return; }
+        void sendDraft();
       };
       started = Date.now(); current.start(200); $('.rs-start').hidden = true; $('.rs-stop').hidden = false;
-      say('录音中 0 / 8 秒 · 松手预览，确认后发送；移开取消');
-      tick = setInterval(() => say(`录音中 ${Math.min(8, Math.floor((Date.now()-started)/1000))} / 8 秒 · 松手预览，确认后发送`), 250);
+      say('录音中 0 / 8 秒 · 松手发送；移开取消');
+      tick = setInterval(() => say(`录音中 ${Math.min(8, Math.floor((Date.now()-started)/1000))} / 8 秒 · 松手发送`), 250);
       timer = setTimeout(() => { if (current.state !== 'inactive') current.stop(); release(); },8000);
     } catch (e) { if (token === epoch && !dead) { reset(); say(e?.name === 'NotAllowedError' ? '麦克风权限未开启，请在浏览器设置中允许后重试。' : '无法使用麦克风，请检查设备或浏览器设置。'); } }
   }
   $('.rs-start').onclick = startRecording;
   $('.rs-stop').onclick = () => { if (recorder?.state === 'recording') { recorder.stop(); release(); } };
   $('.rs-cancel').onclick = () => { reset(); say('已取消录音'); };
-  $('.rs-send').onclick = async () => {
+  async function sendDraft() {
     if (!draft || busy) return; busy = true; $('.rs-send').disabled = true; const token = epoch;
-    try { await sendVoice(draft, duration); if (token === epoch) { reset(); say('语音已发送'); } } catch { if(token === epoch) say('语音发送失败，可重试或取消。'); }
+    try { await sendVoice(draft, duration); if (token === epoch) { reset(); say('语音已发送'); } } catch { if(token === epoch) say('发送结果未确认，请检查互动记录后再重新录制。'); }
     finally { busy = false; $('.rs-send').disabled = false; }
-  };
-  let playEpoch = 0;
+  }
+  let playEpoch = 0, queue = [], running = false, finishPlayback = null, blocked = false;
+  const audio = document.createElement('audio');
+  audio.className = 'rs-playback'; audio.controls = true; audio.hidden = true;
+  panel.insertBefore(audio, $('.rs-feed'));
+  const fallback = $('.rs-unlock');
+  const soundEnabled = () => globalThis.SOUNDS?.isSoundEnabled?.() ?? (() => { try { return localStorage.getItem('pth_sound') !== '0'; } catch { return true; } })();
+  let wasEnabled = soundEnabled();
+  const silent = 'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA';
   function stopPlayback() {
-    playEpoch++;
-    if (playing) { playing.pause(); playing.removeAttribute('src'); playing.load(); playing.remove(); playing = null; }
-    if (playbackURL) URL.revokeObjectURL(playbackURL);
-    playbackURL = null;
+    playEpoch++; queue = []; running = false; blocked = false; fallback.hidden = true;
+    finishPlayback?.(); finishPlayback = null; audio.onended = audio.onerror = null;
+    audio.pause(); audio.removeAttribute('src'); audio.load();
+    if (playbackURL) URL.revokeObjectURL(playbackURL); playbackURL = null;
   }
-  async function play(message, b) {
-    stopPlayback(); const token = playEpoch; b.disabled = true;
-    try {
-      const blob = await loadVoice(message.id);
-      if (dead || token !== playEpoch) return;
-      playbackURL = URL.createObjectURL(blob);
-      const audio = document.createElement('audio'); playing = audio;
-      audio.controls = true; audio.preload = 'none'; audio.className = 'rs-playback';
-      audio.setAttribute('aria-label', `${message.playerName || '玩家'}的语音`);
-      audio.src = playbackURL; panel.insertBefore(audio, $('.rs-feed'));
-      audio.onended = () => { if (!dead && token === playEpoch) say('播放结束'); };
-      audio.onplay = () => { if (!dead && token === playEpoch) say('正在播放语音'); };
+  function completion() {
+    return new Promise(resolve => {
+      finishPlayback = () => { finishPlayback = null; audio.onended = audio.onerror = null; resolve(); };
+      audio.onended = audio.onerror = finishPlayback;
+    });
+  }
+  function primeAudio() {
+    if (running || blocked || !soundEnabled()) return;
+    audio.src = silent;
+    const attempt = audio.play();
+    Promise.resolve(attempt).then(() => { if (!running && !blocked) audio.pause(); }).catch(() => {});
+  }
+  fallback.onclick = () => {
+    if (!soundEnabled() || !blocked) return;
+    const token = playEpoch, ended = completion();
+    // play() must be called directly in the click gesture, on the retained clip.
+    const attempt = audio.play();
+    Promise.resolve(attempt).then(async () => {
+      if (token !== playEpoch) return;
+      blocked = false; fallback.hidden = true; running = true;
+      await ended;
+      if (token === playEpoch) { running = false; void drain(); }
+    }).catch(() => { finishPlayback?.(); if (token === playEpoch) say('浏览器未允许播放，请再次点击播放语音。'); });
+  };
+  async function play(message) {
+    if (!soundEnabled()) { say('请先开启游戏音效。'); return; }
+    stopPlayback(); queue.push(message); void drain();
+  }
+  async function drain() {
+    if (running || blocked || dead || !soundEnabled()) return;
+    running = true; const token = playEpoch;
+    while (queue.length && !dead && token === playEpoch && soundEnabled()) {
+      const message = queue.shift();
       try {
-        await audio.play();
-        if (dead || token !== playEpoch) { audio.pause(); return; }
-        say('正在播放语音');
+        const blob = await loadVoice(message.id);
+        if (dead || token !== playEpoch || !soundEnabled()) break;
+        if (playbackURL) URL.revokeObjectURL(playbackURL);
+        playbackURL = URL.createObjectURL(blob); audio.src = playbackURL; audio.hidden = false;
+        const ended = completion();
+        try { await audio.play(); } catch (e) { finishPlayback?.(); throw e; }
+        if (dead || token !== playEpoch) break;
+        await ended;
       } catch (e) {
-        if (dead || token !== playEpoch) return;
-        say(e?.name === 'NotAllowedError' ? '语音已加载，请点播放器播放' : '语音已加载，请点播放器播放；如仍失败请重试。');
+        if (!dead && token === playEpoch) {
+          if (e?.name === 'NotAllowedError' && playbackURL) { blocked = true; fallback.hidden = false; say('浏览器阻止自动播放，请点击播放语音。'); break; }
+          say('语音播放失败，可在互动记录中重试。');
+        }
       }
-    } catch { if (!dead && token === playEpoch) say('语音无法加载，请点击重试。'); } finally { b.disabled = false; }
+    }
+    if (token === playEpoch) running = false;
   }
+  const onSoundSettings = () => {
+    const enabled = soundEnabled();
+    if (!enabled) stopPlayback();
+    else if (!wasEnabled) primeAudio();
+    wasEnabled = enabled;
+  };
+  globalThis.addEventListener('pth-sound-settings', onSoundSettings);
+  globalThis.addEventListener('storage', onSoundSettings);
   function update(messages = []) {
     if (dead) return;
     const recent = messages.slice(-20), signature = recent.map(m => m.id).join('|');
@@ -158,6 +202,7 @@ export function mountRoomSocial({container, sendEmoji, sendVoice, loadVoice, her
         }
       } else if (m.kind === 'voice') row.append(button(`▶ 语音 ${Math.max(1,Math.round((m.durationMs || 0)/1000))}秒`, e => play(m, e.currentTarget)));
       else continue;
+      if (!first && !seen.has(m.id) && m.kind === 'voice' && String(m.playerId) !== String(heroId) && soundEnabled()) { queue.push(m); void drain(); }
       if (!first && !seen.has(m.id) && String(m.playerId) !== String(heroId) && panel.hidden) { unread++; badge.textContent = String(unread); badge.hidden = false; }
       feed.append(row); seen.add(m.id);
     }
@@ -165,9 +210,9 @@ export function mountRoomSocial({container, sendEmoji, sendVoice, loadVoice, her
     // Room snapshots retain only a small recent window.
     if (seen.size > 100) { seen.clear(); recent.forEach(m => seen.add(m.id)); }
   }
-  const onHide = () => { close(); };
+  const onHide = () => { close(); stopPlayback(); };
   const onVisibility = () => { if(document.hidden) close(); };
   document.addEventListener('visibilitychange', onVisibility);
   globalThis.addEventListener('pagehide', onHide);
-  return {update, destroy() { if(dead) return; onHide(); dead = true; document.removeEventListener('visibilitychange', onVisibility); globalThis.removeEventListener('pagehide', onHide); bubbles.forEach(b => b.remove()); root.remove(); }};
+  return {update, destroy() { if(dead) return; onHide(); dead = true; document.removeEventListener('visibilitychange', onVisibility); globalThis.removeEventListener('pagehide', onHide); globalThis.removeEventListener('pth-sound-settings', onSoundSettings); globalThis.removeEventListener('storage', onSoundSettings); bubbles.forEach(b => b.remove()); root.remove(); }};
 }
